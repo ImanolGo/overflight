@@ -335,7 +335,14 @@ fn run_live(settings: &Settings) -> Result<()> {
     let mut app = App::new(query, source);
     app.units = settings.units;
     app.min_elevation_deg = settings.min_elevation;
-    app.set_satellites(satellite::embedded().unwrap_or_default());
+    if settings.demo {
+        // Embedded TLEs are only for the offline demo; live mode uses the
+        // cache, refreshed from Celestrak.
+        app.set_satellites(
+            satellite::embedded().unwrap_or_default(),
+            now_unix_seconds(),
+        );
+    }
 
     // Refresh the TLEs from Celestrak in the background, unless offline.
     let tle_rx = if settings.demo {
@@ -344,6 +351,7 @@ fn run_live(settings: &Settings) -> Result<()> {
         Some(spawn_tle_fetch(
             providers::http_client()?,
             settings.tle_group.clone(),
+            satellite::TleCache::default_location(),
         ))
     };
 
@@ -367,16 +375,42 @@ fn run_live(settings: &Settings) -> Result<()> {
     result
 }
 
-/// Fetch TLEs once, in the background, and send them back when ready.
+/// Use and, when due, refresh the TLE cache in the background.
 fn spawn_tle_fetch(
     client: reqwest::blocking::Client,
     group: String,
-) -> std::sync::mpsc::Receiver<Vec<satellite::Satellite>> {
+    cache: Option<satellite::TleCache>,
+) -> std::sync::mpsc::Receiver<(Vec<satellite::Satellite>, f64)> {
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        if let Ok(satellites) = satellite::fetch(&client, &group) {
-            let _ = sender.send(satellites);
+        let now = now_unix_seconds();
+
+        // Show whatever is cached straight away; the app hides stale data.
+        if let Some(cache) = &cache
+            && let Some(raw) = cache.load_tle()
+            && let Ok(satellites) = satellite::parse(&raw)
+        {
+            let fetched_at = cache.load_meta().map_or(now, |meta| meta.fetched_at);
+            let _ = sender.send((satellites, fetched_at));
         }
+
+        // Then refresh, if the cache is due (or absent).
+        let outcome = match &cache {
+            Some(cache) => {
+                satellite::refresh(cache, now, || satellite::fetch_text(&client, &group))
+            }
+            None => {
+                match satellite::parse(&satellite::fetch_text(&client, &group).unwrap_or_default())
+                {
+                    Ok(satellites) => satellite::Refresh::Fetched {
+                        satellites,
+                        fetched_at: now,
+                    },
+                    Err(_) => satellite::Refresh::Unavailable,
+                }
+            }
+        };
+        let _ = sender.send(outcome.into_parts());
     });
     receiver
 }
@@ -386,7 +420,7 @@ fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
     app: &mut App,
     fetcher: &mut Fetcher,
-    tle_rx: Option<&std::sync::mpsc::Receiver<Vec<satellite::Satellite>>>,
+    tle_rx: Option<&std::sync::mpsc::Receiver<(Vec<satellite::Satellite>, f64)>>,
     fixed_time: Option<f64>,
     screensaver: bool,
 ) -> Result<()> {
@@ -404,8 +438,8 @@ fn event_loop(
             }
         }
         if let Some(receiver) = tle_rx {
-            while let Ok(satellites) = receiver.try_recv() {
-                app.set_satellites(satellites);
+            while let Ok((satellites, fetched_at)) = receiver.try_recv() {
+                app.set_satellites(satellites, fetched_at);
             }
         }
         app.update(now_s, utc_s);

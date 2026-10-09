@@ -4,7 +4,11 @@
 //! `--demo` (and the tests) work offline. Positions are TEME from SGP4, rotated
 //! into the observer's East-North-Up frame.
 
+use std::path::PathBuf;
+
 use anyhow::{Context, Result};
+use directories::ProjectDirs;
+use serde::{Deserialize, Serialize};
 use sgp4::chrono::NaiveDateTime;
 use sgp4::{Constants, Elements};
 
@@ -14,6 +18,12 @@ use crate::geo::{self, GeoPoint};
 pub const DEFAULT_GROUP: &str = "stations";
 /// Ignore anything past this many satellites, to bound the work.
 const MAX_SATELLITES: usize = 250;
+/// Celestrak updates GP data every two hours; refetch after half a day.
+pub const REFRESH_AFTER_S: f64 = 12.0 * 3600.0;
+/// After a failure, leave the service alone for a day.
+pub const RETRY_AFTER_S: f64 = 24.0 * 3600.0;
+/// SGP4 error grows with TLE age; never draw data older than this.
+pub const MAX_AGE_S: f64 = 7.0 * 24.0 * 3600.0;
 
 /// UTC datetime for a Unix timestamp, if it is representable.
 #[must_use]
@@ -107,8 +117,8 @@ pub fn embedded() -> Result<Vec<Satellite>> {
     parse(include_str!("../fixtures/satellites.tle"))
 }
 
-/// Fetch the latest TLEs for a Celestrak group.
-pub fn fetch(client: &reqwest::blocking::Client, group: &str) -> Result<Vec<Satellite>> {
+/// Fetch the latest TLE text for a Celestrak group.
+pub fn fetch_text(client: &reqwest::blocking::Client, group: &str) -> Result<String> {
     let url = format!("https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=tle");
     let text = client
         .get(&url)
@@ -118,7 +128,171 @@ pub fn fetch(client: &reqwest::blocking::Client, group: &str) -> Result<Vec<Sate
         .context("Celestrak returned an error")?
         .text()
         .context("reading Celestrak response")?;
-    parse(&text)
+    // A valid response always contains at least one TLE; an empty body usually
+    // means we have been throttled.
+    if text.trim().is_empty() {
+        anyhow::bail!("Celestrak returned an empty response");
+    }
+    Ok(text)
+}
+
+/// When the cached TLEs were fetched and, after an error, when we may retry.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct TleMeta {
+    pub fetched_at: f64,
+    pub retry_after: Option<f64>,
+}
+
+/// Whether the cache is due for a refresh at `now`.
+#[must_use]
+pub fn should_fetch(meta: Option<&TleMeta>, now: f64) -> bool {
+    let Some(meta) = meta else {
+        return true;
+    };
+    match meta.retry_after {
+        // The last attempt failed: wait for the retry time, regardless of age.
+        Some(until) => now >= until,
+        // The last attempt succeeded: refresh once the data is old enough.
+        None => now - meta.fetched_at >= REFRESH_AFTER_S,
+    }
+}
+
+/// Whether TLEs fetched at `fetched_at` are too old to draw at `now`.
+#[must_use]
+pub fn is_stale(fetched_at: f64, now: f64) -> bool {
+    now - fetched_at > MAX_AGE_S
+}
+
+/// The on-disk TLE cache.
+#[derive(Debug)]
+pub struct TleCache {
+    dir: PathBuf,
+}
+
+impl TleCache {
+    /// A cache rooted at `dir`.
+    #[must_use]
+    pub fn new(dir: impl Into<PathBuf>) -> Self {
+        Self { dir: dir.into() }
+    }
+
+    /// The cache in the platform cache directory, if one can be found.
+    #[must_use]
+    pub fn default_location() -> Option<Self> {
+        ProjectDirs::from("", "", "overflight").map(|dirs| Self::new(dirs.cache_dir()))
+    }
+
+    fn tle_path(&self) -> PathBuf {
+        self.dir.join("satellites.tle")
+    }
+
+    fn meta_path(&self) -> PathBuf {
+        self.dir.join("satellites.meta.json")
+    }
+
+    /// The stored TLE text, if any.
+    #[must_use]
+    pub fn load_tle(&self) -> Option<String> {
+        std::fs::read_to_string(self.tle_path()).ok()
+    }
+
+    /// The stored metadata, if any.
+    #[must_use]
+    pub fn load_meta(&self) -> Option<TleMeta> {
+        let text = std::fs::read_to_string(self.meta_path()).ok()?;
+        serde_json::from_str(&text).ok()
+    }
+
+    /// Store freshly fetched TLEs.
+    pub fn store(&self, raw: &str, fetched_at: f64) -> Result<()> {
+        std::fs::create_dir_all(&self.dir)?;
+        std::fs::write(self.tle_path(), raw)?;
+        self.write_meta(&TleMeta {
+            fetched_at,
+            retry_after: None,
+        })
+    }
+
+    /// Record a failure, so we leave the service alone until `until`.
+    pub fn store_backoff(&self, until: f64) -> Result<()> {
+        let fetched_at = self.load_meta().map_or(until, |meta| meta.fetched_at);
+        std::fs::create_dir_all(&self.dir)?;
+        self.write_meta(&TleMeta {
+            fetched_at,
+            retry_after: Some(until),
+        })
+    }
+
+    fn write_meta(&self, meta: &TleMeta) -> Result<()> {
+        std::fs::write(self.meta_path(), serde_json::to_string(meta)?)?;
+        Ok(())
+    }
+}
+
+/// The result of [`refresh`].
+#[derive(Debug)]
+pub enum Refresh {
+    /// New data was fetched and cached.
+    Fetched {
+        satellites: Vec<Satellite>,
+        fetched_at: f64,
+    },
+    /// The cache was used; it may be old.
+    Cached {
+        satellites: Vec<Satellite>,
+        fetched_at: f64,
+    },
+    /// Nothing usable.
+    Unavailable,
+}
+
+impl Refresh {
+    /// The satellites and when the underlying TLEs were fetched.
+    #[must_use]
+    pub fn into_parts(self) -> (Vec<Satellite>, f64) {
+        match self {
+            Refresh::Fetched {
+                satellites,
+                fetched_at,
+            }
+            | Refresh::Cached {
+                satellites,
+                fetched_at,
+            } => (satellites, fetched_at),
+            Refresh::Unavailable => (Vec::new(), 0.0),
+        }
+    }
+}
+
+/// Use the cache, refreshing first only when it is due. `fetch` is called at
+/// most once and only when a refresh is due.
+pub fn refresh<F>(cache: &TleCache, now: f64, fetch: F) -> Refresh
+where
+    F: FnOnce() -> Result<String>,
+{
+    let meta = cache.load_meta();
+    if should_fetch(meta.as_ref(), now)
+        && let Ok(raw) = fetch()
+        && let Ok(satellites) = parse(&raw)
+    {
+        let _ = cache.store(&raw, now);
+        return Refresh::Fetched {
+            satellites,
+            fetched_at: now,
+        };
+    }
+    if should_fetch(meta.as_ref(), now) {
+        // The fetch failed; back off for a day.
+        let _ = cache.store_backoff(now + RETRY_AFTER_S);
+    }
+
+    match cache.load_tle().map(|raw| parse(&raw)) {
+        Some(Ok(satellites)) => Refresh::Cached {
+            satellites,
+            fetched_at: meta.map_or(now, |meta| meta.fetched_at),
+        },
+        _ => Refresh::Unavailable,
+    }
 }
 
 #[cfg(test)]
@@ -174,5 +348,103 @@ mod tests {
         // Ten years from the epoch: SGP4 may refuse, which is fine.
         let far = iss.elements.datetime + Duration::days(3650);
         let _ = iss.position(far, observer);
+    }
+
+    const SAMPLE: &str = include_str!("../fixtures/satellites.tle");
+
+    fn temp_cache(name: &str) -> TleCache {
+        let dir =
+            std::env::temp_dir().join(format!("overflight-tle-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        TleCache::new(dir)
+    }
+
+    #[test]
+    fn tle_cache_round_trips() {
+        let cache = temp_cache("round");
+        assert!(cache.load_tle().is_none());
+        assert!(cache.load_meta().is_none());
+
+        cache.store(SAMPLE, 1000.0).unwrap();
+        assert_eq!(cache.load_tle().as_deref(), Some(SAMPLE));
+        let meta = cache.load_meta().unwrap();
+        assert_eq!(meta.fetched_at, 1000.0);
+        assert!(meta.retry_after.is_none());
+
+        let _ = std::fs::remove_dir_all(&cache.dir);
+    }
+
+    #[test]
+    fn should_fetch_respects_freshness_and_backoff() {
+        assert!(should_fetch(None, 0.0));
+        let fresh = TleMeta {
+            fetched_at: 1000.0,
+            retry_after: None,
+        };
+        assert!(!should_fetch(Some(&fresh), 1000.0 + REFRESH_AFTER_S - 1.0));
+        assert!(should_fetch(Some(&fresh), 1000.0 + REFRESH_AFTER_S + 1.0));
+
+        let backed_off = TleMeta {
+            fetched_at: 0.0,
+            retry_after: Some(2000.0),
+        };
+        assert!(!should_fetch(Some(&backed_off), 1500.0));
+        assert!(should_fetch(Some(&backed_off), 2001.0));
+    }
+
+    #[test]
+    fn ten_launches_only_fetch_once() {
+        let cache = temp_cache("ten");
+        let mut fetches = 0;
+        for launch in 0..10 {
+            let now = 1_000_000.0 + f64::from(launch) * 60.0;
+            let outcome = refresh(&cache, now, || {
+                fetches += 1;
+                Ok(SAMPLE.to_string())
+            });
+            assert!(matches!(
+                outcome,
+                Refresh::Fetched { .. } | Refresh::Cached { .. }
+            ));
+        }
+        assert_eq!(fetches, 1, "ten launches should make one request");
+        let _ = std::fs::remove_dir_all(&cache.dir);
+    }
+
+    #[test]
+    fn a_failure_backs_off_for_a_day() {
+        let cache = temp_cache("backoff");
+        let mut fetches = 0;
+
+        let first = refresh(&cache, 1000.0, || {
+            fetches += 1;
+            anyhow::bail!("network down")
+        });
+        assert!(matches!(first, Refresh::Unavailable));
+        assert_eq!(fetches, 1);
+
+        // A minute later, still within the backoff: no request.
+        let second = refresh(&cache, 1060.0, || {
+            fetches += 1;
+            Ok(SAMPLE.to_string())
+        });
+        assert!(matches!(second, Refresh::Unavailable));
+        assert_eq!(fetches, 1);
+
+        // After the backoff expires it tries again.
+        let third = refresh(&cache, 1000.0 + RETRY_AFTER_S + 1.0, || {
+            fetches += 1;
+            Ok(SAMPLE.to_string())
+        });
+        assert!(matches!(third, Refresh::Fetched { .. }));
+        assert_eq!(fetches, 2);
+
+        let _ = std::fs::remove_dir_all(&cache.dir);
+    }
+
+    #[test]
+    fn stale_data_is_flagged() {
+        assert!(!is_stale(0.0, MAX_AGE_S));
+        assert!(is_stale(0.0, MAX_AGE_S + 1.0));
     }
 }

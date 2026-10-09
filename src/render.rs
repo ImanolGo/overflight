@@ -634,6 +634,9 @@ fn status_line(app: &App) -> Line<'static> {
         )),
         None => spans.push(Span::styled(" · waiting for data", base)),
     }
+    if app.satellites_stale {
+        spans.push(Span::styled(" · satellite data out of date", base));
+    }
     if let Some(error) = &app.last_error {
         spans.push(Span::styled(
             format!(" · {error}"),
@@ -984,7 +987,7 @@ mod tests {
         let mut provider = FixtureProvider::embedded().unwrap();
         let query = provider.query();
         let mut app = App::new(query, "demo");
-        app.set_satellites(crate::satellite::embedded().unwrap_or_default());
+        app.set_satellites(crate::satellite::embedded().unwrap_or_default(), utc);
         // Two polls five seconds apart, so dead reckoning, easing and the trail
         // are all exercised at a fixed time.
         let first = provider.fetch(&query).unwrap();

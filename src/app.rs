@@ -70,6 +70,10 @@ pub struct App {
     pub bodies: Vec<BodyPosition>,
     /// Satellite element sets, from TLEs.
     pub satellites: Vec<Satellite>,
+    /// When the satellite TLEs were fetched (Unix seconds).
+    pub satellites_fetched_at: Option<f64>,
+    /// The TLEs are too old to draw.
+    pub satellites_stale: bool,
     /// Satellite positions for the current time.
     pub satellite_positions: Vec<SatellitePosition>,
     /// Fixed star field for the night sky.
@@ -103,6 +107,8 @@ impl App {
             sun_elevation_deg: 90.0,
             bodies: Vec::new(),
             satellites: Vec::new(),
+            satellites_fetched_at: None,
+            satellites_stale: false,
             satellite_positions: Vec::new(),
             stars: generate_stars(),
             selected: None,
@@ -153,8 +159,9 @@ impl App {
     }
 
     /// Replace the satellite element sets, e.g. after a TLE refresh.
-    pub fn set_satellites(&mut self, satellites: Vec<Satellite>) {
+    pub fn set_satellites(&mut self, satellites: Vec<Satellite>, fetched_at: f64) {
         self.satellites = satellites;
+        self.satellites_fetched_at = Some(fetched_at);
     }
 
     /// Advance every track, recompute the sun, and drop tracks that have gone
@@ -168,13 +175,20 @@ impl App {
         self.bodies = sky::positions(self.query.lat, self.query.lon, time);
 
         let observer = self.query.observer();
-        self.satellite_positions = match satellite::datetime(utc_s as i64) {
-            Some(time) => self
-                .satellites
-                .iter()
-                .filter_map(|satellite| satellite.position(time, observer))
-                .collect(),
-            None => Vec::new(),
+        self.satellites_stale = self
+            .satellites_fetched_at
+            .is_some_and(|fetched_at| satellite::is_stale(fetched_at, utc_s));
+        self.satellite_positions = if self.satellites.is_empty() || self.satellites_stale {
+            Vec::new()
+        } else {
+            match satellite::datetime(utc_s as i64) {
+                Some(time) => self
+                    .satellites
+                    .iter()
+                    .filter_map(|satellite| satellite.position(time, observer))
+                    .collect(),
+                None => Vec::new(),
+            }
         };
         for track in &mut self.tracks {
             track.update(now_s);
