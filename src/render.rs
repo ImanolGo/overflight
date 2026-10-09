@@ -1,20 +1,41 @@
-//! Geometry for the overhead "sky view" and its projection onto a terminal.
+//! Geometry for the overhead sky view and drawing of the app frame.
 //!
 //! The screen is a polar projection centred on the zenith: the middle of the
 //! circle is straight up, the edge is the horizon. Terminal cells are roughly
 //! twice as tall as they are wide, so the horizontal coordinate range is
 //! halved to keep the horizon a circle rather than an oval.
+//!
+//! The horizon, the 30°/60° rings and the trails are drawn with a ratatui
+//! `Canvas` in Braille. Aircraft arrows, labels and compass letters are written
+//! straight into the buffer so they land on exact cells.
 
 use ratatui::Frame;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::symbols;
-use ratatui::widgets::canvas::{Canvas, Circle};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use ratatui::widgets::canvas::{Canvas, Circle, Points};
+
+use crate::app::App;
+use crate::geo;
 
 /// Terminal cells are approximately twice as tall as they are wide.
 pub const CELL_ASPECT: f64 = 2.0;
 
+/// Below this size, show a "make me bigger" message instead of the sky.
+const MIN_WIDTH: u16 = 30;
+const MIN_HEIGHT: u16 = 15;
+
 /// Distance, in cells, between the horizon and the compass letters.
 const COMPASS_GAP_CELLS: f64 = 1.5;
+
+const HORIZON_COLOR: Color = Color::Rgb(80, 80, 90);
+const RING_COLOR: Color = Color::Rgb(46, 46, 56);
+const TRAIL_COLOR: (f64, f64, f64) = (70.0, 95.0, 130.0);
+
+/// The eight aircraft arrows, indexed by screen heading in 45° steps from east.
+const ARROWS: [char; 8] = ['→', '↗', '↑', '↖', '←', '↙', '↓', '↘'];
 
 /// The coordinate system used to paint the sky into a terminal area.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -69,6 +90,29 @@ impl SkyGeometry {
         (
             self.radius * (cols - 1.0) / x_range,
             self.radius * (rows - 1.0) / y_range,
+        )
+    }
+
+    /// Terminal cell for a direction on the sky disc.
+    ///
+    /// `(x, y)` come from [`geo::project`]: `+y` is north, `+x` is east in map
+    /// orientation, in units of the horizon radius.
+    #[must_use]
+    pub fn direction_cell(&self, x: f64, y: f64) -> (u16, u16) {
+        let last_col = f64::from(self.cols.saturating_sub(1));
+        let last_row = f64::from(self.rows.saturating_sub(1));
+        let (radius_cols, radius_rows) = self.radius_in_cells();
+        let col = last_col / 2.0 + x * radius_cols;
+        let row = last_row / 2.0 - y * radius_rows;
+        (clamp_cell(col, last_col), clamp_cell(row, last_row))
+    }
+
+    /// Canvas coordinates for a direction on the sky disc.
+    #[must_use]
+    pub fn direction_canvas(&self, x: f64, y: f64) -> (f64, f64) {
+        (
+            self.center.0 + x * self.radius,
+            self.center.1 + y * self.radius,
         )
     }
 
@@ -128,10 +172,17 @@ impl Compass {
     }
 }
 
-/// Draw the sky view into `frame`.
-pub fn render(frame: &mut Frame) {
+/// Draw the whole app into `frame`.
+pub fn render(frame: &mut Frame, app: &App) {
     let area = frame.area();
-    let geometry = SkyGeometry::new(area.width, area.height);
+    if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+        render_too_small(frame, area);
+        return;
+    }
+
+    let [sky_area, status_area] =
+        Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(area);
+    let geometry = SkyGeometry::new(sky_area.width, sky_area.height);
     let (cx, cy) = geometry.center;
     let radius = geometry.radius;
 
@@ -139,31 +190,183 @@ pub fn render(frame: &mut Frame) {
         .x_bounds(geometry.x_bounds)
         .y_bounds(geometry.y_bounds)
         .marker(symbols::Marker::Braille)
-        .paint(move |ctx| {
+        .paint(|ctx| {
             ctx.draw(&Circle {
                 x: cx,
                 y: cy,
                 radius,
-                color: Color::DarkGray,
+                color: HORIZON_COLOR,
             });
+            for elevation in [30.0, 60.0] {
+                let fraction = (90.0 - elevation) / 90.0;
+                ctx.draw(&Circle {
+                    x: cx,
+                    y: cy,
+                    radius: radius * fraction,
+                    color: RING_COLOR,
+                });
+            }
+
+            if app.show_trails {
+                for track in &app.tracks {
+                    let alpha = track.alpha(app.now_s);
+                    for (enu, age) in track.trail(app.now_s) {
+                        if let Some((x, y)) = disc_position(&enu, app.sky_orientation) {
+                            let (cx, cy) = geometry.direction_canvas(x, y);
+                            ctx.draw(&Points {
+                                coords: &[(cx, cy)],
+                                color: trail_color(age, alpha),
+                            });
+                        }
+                    }
+                }
+            }
         });
 
-    frame.render_widget(canvas, area);
+    frame.render_widget(canvas, sky_area);
 
     let buffer = frame.buffer_mut();
-    let style = Style::default().fg(Color::Gray);
+    let (origin_x, origin_y) = (sky_area.left(), sky_area.top());
+
     for compass in Compass::ALL {
-        let (x, y) = geometry.compass_cell(compass, true);
-        buffer.set_string(x, y, compass.letter(), style);
+        let (x, y) = geometry.compass_cell(compass, app.sky_orientation);
+        buffer.set_string(
+            origin_x + x,
+            origin_y + y,
+            compass.letter(),
+            Style::default().fg(Color::Gray),
+        );
     }
+
+    for track in &app.tracks {
+        let (azimuth, elevation, _) = track.az_el();
+        if elevation < 0.0 {
+            continue;
+        }
+        let (x, y) = geo::project(azimuth, elevation, app.sky_orientation);
+        let (col, row) = geometry.direction_cell(x, y);
+        let alpha = track.alpha(app.now_s);
+        let style = Style::default().fg(altitude_color(track.alt_m, alpha));
+        let arrow = screen_arrow(track.track_deg, app.sky_orientation);
+        buffer.set_string(origin_x + col, origin_y + row, arrow.to_string(), style);
+        if app.show_callsigns {
+            buffer.set_string(
+                origin_x + col + 2,
+                origin_y + row,
+                aircraft_label(track),
+                style,
+            );
+        }
+    }
+
+    frame.render_widget(Paragraph::new(status_line(app)), status_area);
+}
+
+/// Project an ENU position onto the sky disc, or `None` if it is out of range.
+fn disc_position(enu: &[f64; 3], sky_orientation: bool) -> Option<(f64, f64)> {
+    let [east, north, up] = *enu;
+    let ground = east.hypot(north);
+    let azimuth = east.atan2(north).to_degrees().rem_euclid(360.0);
+    let elevation = up.atan2(ground).to_degrees();
+    if elevation < 0.0 {
+        return None;
+    }
+    Some(geo::project(azimuth, elevation, sky_orientation))
+}
+
+/// Screen-space arrow for a true track.
+///
+/// The sky view mirrors east onto the left, so a plane heading east points
+/// left on screen there and right in map orientation.
+#[must_use]
+pub fn screen_arrow(track_deg: Option<f64>, sky_orientation: bool) -> char {
+    let Some(track_deg) = track_deg else {
+        return '·';
+    };
+    let track = track_deg.to_radians();
+    let east = track.sin() * if sky_orientation { -1.0 } else { 1.0 };
+    let north = track.cos();
+    let angle = north.atan2(east).to_degrees().rem_euclid(360.0);
+    let index = ((angle / 45.0).round() as usize) % ARROWS.len();
+    ARROWS[index]
+}
+
+/// Colour for an aircraft by altitude band, dimmed by `alpha`.
+fn altitude_color(alt_m: Option<f64>, alpha: f64) -> Color {
+    let (r, g, b) = match alt_m {
+        Some(altitude) if altitude < 3_000.0 => (255.0, 170.0, 80.0),
+        Some(altitude) if altitude > 9_000.0 => (120.0, 180.0, 255.0),
+        _ => (200.0, 200.0, 200.0),
+    };
+    dim((r, g, b), alpha)
+}
+
+/// Fading trail dot colour.
+fn trail_color(age_s: f64, alpha: f64) -> Color {
+    let freshness = (1.0 - age_s / 60.0).clamp(0.0, 1.0);
+    dim(TRAIL_COLOR, freshness * alpha)
+}
+
+fn dim((r, g, b): (f64, f64, f64), alpha: f64) -> Color {
+    let alpha = alpha.clamp(0.0, 1.0);
+    Color::Rgb((r * alpha) as u8, (g * alpha) as u8, (b * alpha) as u8)
+}
+
+/// Label plus a climbing/descending marker.
+fn aircraft_label(track: &crate::track::Track) -> String {
+    let mut label = track.label().to_string();
+    match track.vertical_rate_ms {
+        Some(rate) if rate > 0.5 => label.push('+'),
+        Some(rate) if rate < -0.5 => label.push('-'),
+        _ => {}
+    }
+    label
+}
+
+/// The bottom status line.
+fn status_line(app: &App) -> Line<'static> {
+    let base = Style::default().fg(Color::DarkGray);
+    let mut spans = vec![Span::styled(
+        format!("{} · {} aircraft", app.source, app.live_count()),
+        base,
+    )];
+    match app.last_update_s {
+        Some(updated) => spans.push(Span::styled(
+            format!(" · updated {:.1}s ago", (app.now_s - updated).max(0.0)),
+            base,
+        )),
+        None => spans.push(Span::styled(" · waiting for data", base)),
+    }
+    if let Some(error) = &app.last_error {
+        spans.push(Span::styled(
+            format!(" · {error}"),
+            Style::default().fg(Color::Rgb(90, 70, 70)),
+        ));
+    }
+    Line::from(spans)
+}
+
+fn render_too_small(frame: &mut Frame, area: Rect) {
+    let message = format!(
+        "Terminal too small ({}x{}). Make me bigger — at least {MIN_WIDTH}x{MIN_HEIGHT}.",
+        area.width, area.height
+    );
+    frame.render_widget(
+        Paragraph::new(message).style(Style::default().fg(Color::Gray)),
+        area,
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
 
     use super::*;
+    use crate::app::App;
+    use crate::providers::Provider;
+    use crate::providers::fixture::FixtureProvider;
 
     #[test]
     fn coordinate_axes_have_equal_physical_scale() {
@@ -171,7 +374,6 @@ mod tests {
             let g = SkyGeometry::new(w, h);
             let x_range = g.x_bounds[1] - g.x_bounds[0];
             let y_range = g.y_bounds[1] - g.y_bounds[0];
-            // Cells per coordinate unit times the physical cell size.
             let physical_x = f64::from(w) / x_range;
             let physical_y = f64::from(h) / y_range * CELL_ASPECT;
             assert!(
@@ -211,36 +413,96 @@ mod tests {
     #[test]
     fn east_west_swap_between_orientations() {
         let g = SkyGeometry::new(80, 24);
-        let center_col = 39.5;
+        let center_col = 40.0;
         assert!(
-            f64::from(g.compass_cell(Compass::East, true).0) < center_col,
-            "east should be left in sky mode"
+            f64::from(g.direction_cell(1.0, 0.0).0) > center_col,
+            "map east should be right"
         );
         assert!(
-            f64::from(g.compass_cell(Compass::East, false).0) > center_col,
-            "east should be right in map mode"
+            f64::from(g.direction_cell(-1.0, 0.0).0) < center_col,
+            "sky east should be left"
         );
+    }
+
+    #[test]
+    fn arrow_mirrors_east_in_sky_orientation() {
+        assert_eq!(screen_arrow(Some(90.0), true), '←');
+        assert_eq!(screen_arrow(Some(90.0), false), '→');
+        assert_eq!(screen_arrow(Some(0.0), true), '↑');
+        assert_eq!(screen_arrow(Some(270.0), true), '→');
+        assert_eq!(screen_arrow(Some(180.0), false), '↓');
+        assert_eq!(screen_arrow(None, true), '·');
     }
 
     #[test]
     fn renders_horizon_and_compass_letters() {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        terminal.draw(render).unwrap();
-        let buffer = terminal.backend().buffer();
-
-        let mut text = String::new();
-        for y in 0..buffer.area.height {
-            for x in 0..buffer.area.width {
-                text.push_str(buffer[(x, y)].symbol());
-            }
-        }
-
+        let app = App::new(
+            crate::providers::Query {
+                lat: 52.52,
+                lon: 13.40,
+                radius_km: 80.0,
+            },
+            "test",
+        );
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
         for letter in ["N", "E", "S", "W"] {
             assert!(text.contains(letter), "missing compass letter {letter}");
         }
         assert!(
             text.chars().any(|c| ('\u{2800}'..='\u{28ff}').contains(&c)),
-            "expected braille dots for the horizon circle"
+            "expected braille dots for the horizon"
         );
+    }
+
+    #[test]
+    fn small_terminals_get_a_message() {
+        let mut terminal = Terminal::new(TestBackend::new(20, 8)).unwrap();
+        let app = App::new(
+            crate::providers::Query {
+                lat: 0.0,
+                lon: 0.0,
+                radius_km: 1.0,
+            },
+            "test",
+        );
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("too small"), "{text}");
+    }
+
+    #[test]
+    fn snapshot_demo_sky_is_stable() {
+        let mut provider = FixtureProvider::embedded().unwrap();
+        let query = provider.query();
+
+        let mut app = App::new(query, "demo");
+        // First poll, then a second five seconds later, so the snapshot
+        // exercises dead reckoning, easing and the trail.
+        let first = provider.fetch(&query).unwrap();
+        app.apply(&first, 0.0);
+        app.update(0.0);
+        let second = provider.fetch(&query).unwrap();
+        app.apply(&second, 5.0);
+        app.update(5.0);
+        app.update(5.6);
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 32)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        insta::assert_snapshot!("demo_sky", buffer_text(terminal.backend().buffer()));
+    }
+
+    fn buffer_text(buffer: &Buffer) -> String {
+        let mut text = String::new();
+        for y in 0..buffer.area.height {
+            let mut line = String::new();
+            for x in 0..buffer.area.width {
+                line.push_str(buffer[(x, y)].symbol());
+            }
+            text.push_str(line.trim_end());
+            text.push('\n');
+        }
+        text
     }
 }

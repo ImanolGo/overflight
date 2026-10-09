@@ -2,12 +2,14 @@
 
 use std::cmp::Ordering;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 
+use overflight::app::App;
+use overflight::fetcher::{FetchEvent, Fetcher};
 use overflight::geo;
 use overflight::providers::airplanes_live::AirplanesLive;
 use overflight::providers::fixture::FixtureProvider;
@@ -16,8 +18,8 @@ use overflight::providers::opensky::{Credentials, OpenSky};
 use overflight::providers::{self, Aircraft, Provider, Query, Recorder};
 use overflight::render;
 
-/// How long the event loop waits for a key before redrawing.
-const FRAME_INTERVAL: Duration = Duration::from_millis(100);
+/// Target frame time, about 30 fps.
+const TARGET_FRAME: Duration = Duration::from_millis(33);
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum SourceArg {
@@ -71,7 +73,7 @@ fn main() -> Result<()> {
     if cli.dump {
         return dump(&cli);
     }
-    run_tui()
+    run_live(&cli)
 }
 
 /// Build the provider and query from the CLI.
@@ -184,23 +186,51 @@ fn print_table(source: &str, query: &Query, aircraft: &[Aircraft]) {
     }
 }
 
-fn run_tui() -> Result<()> {
+/// Run the live sky view.
+fn run_live(cli: &Cli) -> Result<()> {
+    let (provider, query) = build_provider(cli)?;
+    let source = provider.name().to_string();
+    let interval = provider.min_interval();
+    let mut fetcher = Fetcher::spawn(provider, query, interval);
+    let mut app = App::new(query, source);
+
     let mut terminal = ratatui::init();
-    let result = event_loop(&mut terminal);
+    let result = event_loop(&mut terminal, &mut app, &mut fetcher);
     ratatui::restore();
     result
 }
 
-fn event_loop(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
-    loop {
-        terminal.draw(render::render)?;
+fn event_loop(
+    terminal: &mut ratatui::DefaultTerminal,
+    app: &mut App,
+    fetcher: &mut Fetcher,
+) -> Result<()> {
+    let start = Instant::now();
+    let mut deadline = Instant::now();
 
-        if event::poll(FRAME_INTERVAL)?
+    loop {
+        let now_s = start.elapsed().as_secs_f64();
+
+        while let Ok(event) = fetcher.events.try_recv() {
+            match event {
+                FetchEvent::Aircraft(aircraft) => app.apply(&aircraft, now_s),
+                FetchEvent::Error(message) => app.set_error(message),
+            }
+        }
+        app.update(now_s);
+        terminal.draw(|frame| render::render(frame, app))?;
+
+        deadline += TARGET_FRAME;
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        if event::poll(timeout)?
             && let Event::Key(key) = event::read()?
             && key.kind == KeyEventKind::Press
             && matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
         {
             break;
+        }
+        if Instant::now() > deadline {
+            deadline = Instant::now();
         }
     }
     Ok(())
