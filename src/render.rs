@@ -700,16 +700,35 @@ fn render_horizon(frame: &mut Frame, area: Rect, app: &App) {
         sky_area,
     );
 
-    const VIEW_AZIMUTH: f64 = 0.0; // look north
+    let view = app.view_azimuth_deg;
 
     {
         let buffer = frame.buffer_mut();
         let (origin_x, origin_y) = (sky_area.left(), sky_area.top());
         draw_skyline(buffer, sky_area, &palette);
 
+        let mut left = 0usize;
+        let mut right = 0usize;
+
         for track in &app.tracks {
             let (azimuth, elevation, _) = track.az_el();
-            let Some((col, row)) = horizon_cell(sky_area, azimuth, elevation, VIEW_AZIMUTH) else {
+            if !(0.0..=90.0).contains(&elevation) {
+                continue;
+            }
+            let mut delta = (azimuth - view).rem_euclid(360.0);
+            if delta > 180.0 {
+                delta -= 360.0;
+            }
+            if delta > HORIZON_FOV_HALF {
+                right += 1;
+                continue;
+            }
+            if delta < -HORIZON_FOV_HALF {
+                left += 1;
+                continue;
+            }
+
+            let Some((col, row)) = horizon_cell(sky_area, azimuth, elevation, view) else {
                 continue;
             };
             let alpha = track.alpha(app.now_s);
@@ -725,7 +744,7 @@ fn render_horizon(frame: &mut Frame, area: Rect, app: &App) {
             buffer.set_string(
                 origin_x + col,
                 origin_y + row,
-                horizon_arrow(track).to_string(),
+                horizon_arrow(track, view).to_string(),
                 style,
             );
             if app.show_callsigns {
@@ -738,12 +757,23 @@ fn render_horizon(frame: &mut Frame, area: Rect, app: &App) {
             }
         }
 
+        let edge_style = Style::default().fg(rgb(palette.compass));
         buffer.set_string(
             origin_x,
             origin_y,
-            format!("looking {}", compass_word(VIEW_AZIMUTH)),
-            Style::default().fg(rgb(palette.compass)),
+            format!("looking {}", compass_word(view)),
+            edge_style,
         );
+        let edge_row = origin_y + sky_area.height / 2;
+        if left > 0 {
+            buffer.set_string(origin_x, edge_row, format!("‹ {left}"), edge_style);
+        }
+        if right > 0 {
+            let label = format!("{right} ›");
+            let width = u16::try_from(label.chars().count()).unwrap_or(0);
+            let col = sky_area.width.saturating_sub(width);
+            buffer.set_string(origin_x + col, edge_row, label, edge_style);
+        }
     }
 
     if app.tracks.is_empty() {
@@ -819,15 +849,19 @@ fn horizon_cell(
 }
 
 /// Side-on arrow: east is to the right, and the vertical rate tilts it up or
-/// down.
-fn horizon_arrow(track: &Track) -> char {
+/// down. A plane moving mostly towards or away from the viewer gets a dot.
+fn horizon_arrow(track: &Track, view_azimuth: f64) -> char {
     let Some(track_deg) = track.track_deg else {
         return '·';
     };
-    let east = track_deg.to_radians().sin();
+    let relative = (track_deg - view_azimuth).to_radians();
+    if relative.cos().abs() > 0.7 {
+        return '•';
+    }
+    let across = relative.sin();
     let speed = track.ground_speed_ms.unwrap_or(0.0).max(1.0);
     let climb = track.vertical_rate_ms.unwrap_or(0.0) / speed;
-    arrow_from_angle(climb.atan2(east).to_degrees())
+    arrow_from_angle(climb.atan2(across).to_degrees())
 }
 
 fn render_too_small(frame: &mut Frame, area: Rect) {
@@ -1082,9 +1116,12 @@ mod tests {
             Track::new(&aircraft, GeoPoint::new(52.52, 13.40, 0.0), 0.0)
         };
         // Eastbound, level: points right.
-        assert_eq!(horizon_arrow(&make(90.0, 0.0)), '→');
+        assert_eq!(horizon_arrow(&make(90.0, 0.0), 0.0), '→');
         // Climbing at the same rate as it travels: points up-right.
-        assert_eq!(horizon_arrow(&make(90.0, 100.0)), '↗');
+        assert_eq!(horizon_arrow(&make(90.0, 100.0), 0.0), '↗');
+        // Flying towards or away from the viewer: a dot, not an arrow.
+        assert_eq!(horizon_arrow(&make(0.0, 0.0), 0.0), '•');
+        assert_eq!(horizon_arrow(&make(180.0, 0.0), 0.0), '•');
     }
 
     #[test]

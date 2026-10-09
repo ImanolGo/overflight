@@ -546,6 +546,14 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             app.horizon = !app.horizon;
             false
         }
+        KeyCode::Left => {
+            app.view_azimuth_deg = (app.view_azimuth_deg - 45.0).rem_euclid(360.0);
+            false
+        }
+        KeyCode::Right => {
+            app.view_azimuth_deg = (app.view_azimuth_deg + 45.0).rem_euclid(360.0);
+            false
+        }
         KeyCode::Char('u') => {
             app.units = app.units.toggled();
             false

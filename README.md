@@ -90,6 +90,7 @@ Keys while it's running:
 | `t` | Show or hide trails |
 | `m` | Switch between sky view and map orientation |
 | `h` | Switch to the side-on horizon view |
+| `←` / `→` | Turn the horizon view |
 | `u` | Switch between metric and imperial |
 
 The detail box for the selected aircraft shows its callsign, registration,

@@ -53,6 +53,8 @@ pub struct App {
     pub sky_orientation: bool,
     /// Draw the side-on horizon view instead of the overhead circle.
     pub horizon: bool,
+    /// The compass direction the horizon view looks towards, degrees.
+    pub view_azimuth_deg: f64,
     pub show_callsigns: bool,
     pub show_trails: bool,
     pub tracks: Vec<Track>,
@@ -101,6 +103,7 @@ impl App {
             source: source.into(),
             sky_orientation: true,
             horizon: false,
+            view_azimuth_deg: 0.0,
             show_callsigns: true,
             show_trails: true,
             tracks: Vec::new(),
