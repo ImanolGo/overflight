@@ -36,7 +36,7 @@ It's a screensaver, mostly. But it's also the quickest way to answer "what was t
 You'll need a recent stable Rust toolchain.
 
 ```sh
-cargo install --git https://github.com/<you>/overflight
+cargo install --git https://github.com/ImanolGo/overflight
 ```
 
 ## Usage
