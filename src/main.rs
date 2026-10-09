@@ -17,7 +17,7 @@ use overflight::providers::fixture::FixtureProvider;
 use overflight::providers::local::Local;
 use overflight::providers::opensky::{Credentials, OpenSky};
 use overflight::providers::{self, Aircraft, Provider, Query, Recorder};
-use overflight::{logbook, render, satellite, sun};
+use overflight::{logbook, render, route, satellite, sun};
 
 /// Frame time while aircraft are moving: about 30 fps.
 const MOVING_FRAME: Duration = Duration::from_millis(33);
@@ -404,6 +404,13 @@ fn run_live(settings: &Settings) -> Result<()> {
     app.rare_types = settings.rare_types.clone();
     if let Some(path) = &settings.log {
         app.set_logger(logbook::Logger::new(path));
+    }
+
+    // Route lookup is a nicety; keep it off for the offline demo.
+    if !settings.demo
+        && let Ok(client) = route::http_client()
+    {
+        app.set_route_looker(route::Looker::spawn(Box::new(route::Adsbdb::new(client))));
     }
     if settings.demo {
         // Embedded TLEs are only for the offline demo; live mode uses the

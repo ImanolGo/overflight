@@ -5,6 +5,7 @@ use crate::config::Units;
 use crate::geo::{self, GeoPoint};
 use crate::logbook;
 use crate::providers::{Aircraft, Query};
+use crate::route;
 use crate::satellite::{self, Satellite, SatellitePosition};
 use crate::sky::{self, BodyPosition};
 use crate::sun::{self, Utc};
@@ -66,6 +67,10 @@ pub struct App {
     pub pass_prediction: Option<PassPrediction>,
     /// Append-only logbook, if `--log` was given.
     logger: Option<logbook::Logger>,
+    /// Route lookup worker and cache, if enabled.
+    route_looker: Option<route::Looker>,
+    /// The selected aircraft's route, once known.
+    pub selected_route: Option<route::Route>,
     /// Preferred display units.
     pub units: Units,
     /// Extra rare type codes from the config, on top of the built-in ones.
@@ -104,6 +109,8 @@ impl App {
             notification: None,
             pass_prediction: None,
             logger: None,
+            route_looker: None,
+            selected_route: None,
             units: Units::Metric,
             rare_types: Vec::new(),
             min_elevation_deg: 0.0,
@@ -167,6 +174,11 @@ impl App {
     /// Send departing aircraft to a CSV logbook.
     pub fn set_logger(&mut self, logger: logbook::Logger) {
         self.logger = Some(logger);
+    }
+
+    /// Look up the selected callsign's route in the background.
+    pub fn set_route_looker(&mut self, looker: route::Looker) {
+        self.route_looker = Some(looker);
     }
 
     fn log_departure(&mut self, track: &Track, utc_s: f64) {
@@ -248,6 +260,22 @@ impl App {
                     .partial_cmp(&b.elevation_deg)
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
+
+        if let Some(looker) = &mut self.route_looker {
+            looker.poll(utc_s);
+        }
+        let selected_callsign = self
+            .selected_track()
+            .and_then(|track| track.callsign.clone());
+        if let (Some(looker), Some(callsign)) =
+            (self.route_looker.as_mut(), selected_callsign.as_deref())
+        {
+            looker.request(callsign, utc_s);
+        }
+        self.selected_route = match (self.route_looker.as_ref(), selected_callsign.as_deref()) {
+            (Some(looker), Some(callsign)) => looker.get(callsign, utc_s).cloned(),
+            _ => None,
+        };
     }
 
     /// Number of aircraft currently tracked.

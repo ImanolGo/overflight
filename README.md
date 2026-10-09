@@ -97,7 +97,9 @@ Keys while it's running:
 
 The detail box for the selected aircraft shows its callsign, registration,
 aircraft type, altitude, ground speed, distance from you, and where to look
-("north-east, 38° up").
+("north-east, 38° up"). When it can, overflight also looks up the route
+(origin → destination) from [adsbdb](https://www.adsbdb.com/); this is off in
+`--demo`.
 
 `units = "metric"` shows metres, km/h and kilometres; `"imperial"` shows feet,
 knots and miles.

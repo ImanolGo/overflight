@@ -11,6 +11,7 @@ pub mod geo;
 pub mod logbook;
 pub mod providers;
 pub mod render;
+pub mod route;
 pub mod satellite;
 pub mod sky;
 pub mod sun;

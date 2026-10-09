@@ -575,6 +575,12 @@ fn render_detail(frame: &mut Frame, area: Rect, track: &Track, app: &App, palett
         "Where     {}, {elevation:.0}° up",
         compass_word(azimuth)
     )));
+    if let Some(route) = &app.selected_route {
+        lines.push(Line::from(format!(
+            "Route     {} → {}",
+            route.origin, route.destination
+        )));
+    }
 
     render_info_box(frame, area, lines, palette);
 }
