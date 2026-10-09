@@ -17,8 +17,18 @@ pub mod local;
 pub mod opensky;
 pub mod readsb;
 
+/// The kind of aircraft, from its ADS-B emitter category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AircraftKind {
+    #[default]
+    Plane,
+    Helicopter,
+    Glider,
+    Balloon,
+}
+
 /// A single aircraft state, normalized across providers.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Aircraft {
     /// ICAO 24-bit hex address, lowercase.
     pub id: String,
@@ -27,6 +37,8 @@ pub struct Aircraft {
     pub registration: Option<String>,
     /// ICAO type code, e.g. `A20N`.
     pub type_code: Option<String>,
+    /// Aircraft kind from the ADS-B emitter category.
+    pub kind: AircraftKind,
     pub lat: f64,
     pub lon: f64,
     /// Geometric altitude if available, else barometric, in metres.
@@ -38,6 +50,14 @@ pub struct Aircraft {
     pub vertical_rate_ms: Option<f64>,
     /// Age of the position when the response was produced, seconds.
     pub position_age_s: f64,
+    /// Transponder squawk code, if any.
+    pub squawk: Option<String>,
+    /// ADS-B emergency/priority status, if not `none`.
+    pub emergency: Option<String>,
+    /// Whether the database flags this as a military aircraft.
+    pub military: bool,
+    /// Whether the database flags this as interesting.
+    pub interesting: bool,
 }
 
 impl Aircraft {
@@ -57,6 +77,38 @@ impl Aircraft {
         let [east, north, _] = geo::enu(observer, target);
         east.hypot(north)
     }
+
+    /// A short reason this aircraft is unusual, if it is.
+    #[must_use]
+    pub fn unusual_reason(&self) -> Option<&'static str> {
+        if self.emergency.is_some() {
+            return Some("emergency");
+        }
+        match self.squawk.as_deref() {
+            Some("7700") => return Some("emergency squawk 7700"),
+            Some("7600") => return Some("radio failure squawk 7600"),
+            Some("7500") => return Some("unlawful interference 7500"),
+            _ => {}
+        }
+        if self.military {
+            return Some("military");
+        }
+        if is_rare_type(self.type_code.as_deref()) {
+            return Some("rare type");
+        }
+        if self.interesting {
+            return Some("of interest");
+        }
+        None
+    }
+}
+
+/// Type codes rare enough to be worth a nod.
+fn is_rare_type(type_code: Option<&str>) -> bool {
+    const RARE: [&str; 8] = [
+        "A388", "B748", "A225", "AN124", "C5M", "B52H", "CONC", "A124",
+    ];
+    type_code.is_some_and(|code| RARE.contains(&code))
 }
 
 /// Where to look for aircraft.

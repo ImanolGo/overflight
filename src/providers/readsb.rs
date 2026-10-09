@@ -32,6 +32,24 @@ impl Altitude {
     }
 }
 
+/// A squawk, which some feeds give as a string of octal digits and others as a
+/// number.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Squawk {
+    Text(String),
+    Number(u32),
+}
+
+impl Squawk {
+    fn code(&self) -> String {
+        match self {
+            Squawk::Text(text) => text.clone(),
+            Squawk::Number(number) => format!("{number:04}"),
+        }
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct RawAircraft {
@@ -39,6 +57,7 @@ struct RawAircraft {
     flight: Option<String>,
     r: Option<String>,
     t: Option<String>,
+    category: Option<String>,
     lat: Option<f64>,
     lon: Option<f64>,
     alt_geom: Option<Altitude>,
@@ -48,6 +67,10 @@ struct RawAircraft {
     geom_rate: Option<f64>,
     baro_rate: Option<f64>,
     seen_pos: Option<f64>,
+    squawk: Option<Squawk>,
+    emergency: Option<String>,
+    #[serde(rename = "dbFlags")]
+    db_flags: Option<u32>,
 }
 
 impl RawAircraft {
@@ -71,11 +94,17 @@ impl RawAircraft {
             .map(|flight| flight.trim().to_string())
             .filter(|flight| !flight.is_empty());
 
+        let emergency = self
+            .emergency
+            .map(|emergency| emergency.trim().to_string())
+            .filter(|emergency| !emergency.is_empty() && emergency != "none");
+
         Some(Aircraft {
             id,
             callsign,
             registration: self.r,
             type_code: self.t,
+            kind: kind_from_category(self.category.as_deref()),
             lat,
             lon,
             alt_m,
@@ -84,7 +113,22 @@ impl RawAircraft {
             track_deg: self.track,
             vertical_rate_ms: self.geom_rate.or(self.baro_rate).map(fpm_to_ms),
             position_age_s: self.seen_pos.unwrap_or(0.0),
+            squawk: self.squawk.map(|squawk| squawk.code()),
+            emergency,
+            military: self.db_flags.is_some_and(|flags| flags & 1 != 0),
+            interesting: self.db_flags.is_some_and(|flags| flags & 2 != 0),
         })
+    }
+}
+
+/// Map a readsb emitter category (`A0`..`D7`) to a kind.
+fn kind_from_category(category: Option<&str>) -> super::AircraftKind {
+    use super::AircraftKind;
+    match category {
+        Some("A7") => AircraftKind::Helicopter,
+        Some("B1") => AircraftKind::Glider,
+        Some("B2") => AircraftKind::Balloon,
+        _ => AircraftKind::Plane,
     }
 }
 
@@ -118,6 +162,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::providers::AircraftKind;
 
     fn only(json: Value) -> Aircraft {
         let parsed = parse_response(&json).expect("valid response");
@@ -159,6 +204,59 @@ mod tests {
         // Geometric vertical rate preferred.
         assert!((aircraft.vertical_rate_ms.unwrap() - (-640.0 * 0.005_08)).abs() < 1e-9);
         assert_eq!(aircraft.position_age_s, 0.9);
+    }
+
+    #[test]
+    fn maps_category_squawk_and_flags() {
+        let helicopter = only(json!({
+            "ac": [{
+                "hex": "abc123", "lat": 1.0, "lon": 2.0,
+                "category": "A7", "squawk": 7700,
+                "emergency": "general", "dbFlags": 3
+            }]
+        }));
+        assert_eq!(helicopter.kind, AircraftKind::Helicopter);
+        assert_eq!(helicopter.squawk.as_deref(), Some("7700"));
+        assert_eq!(helicopter.emergency.as_deref(), Some("general"));
+        assert!(helicopter.military);
+        assert!(helicopter.interesting);
+        assert_eq!(helicopter.unusual_reason(), Some("emergency"));
+
+        let glider = only(json!({
+            "ac": [{ "hex": "def456", "lat": 1.0, "lon": 2.0, "category": "B1" }]
+        }));
+        assert_eq!(glider.kind, AircraftKind::Glider);
+        assert_eq!(glider.squawk, None);
+        assert_eq!(glider.unusual_reason(), None);
+
+        let balloon = only(json!({
+            "ac": [{ "hex": "aaa111", "lat": 1.0, "lon": 2.0, "category": "B2" }]
+        }));
+        assert_eq!(balloon.kind, AircraftKind::Balloon);
+    }
+
+    #[test]
+    fn flags_unusual_aircraft() {
+        let squawk = only(json!({
+            "ac": [{ "hex": "abc123", "lat": 1.0, "lon": 2.0, "squawk": "7700" }]
+        }));
+        assert_eq!(squawk.unusual_reason(), Some("emergency squawk 7700"));
+
+        let military = only(json!({
+            "ac": [{ "hex": "mil123", "lat": 1.0, "lon": 2.0, "dbFlags": 1 }]
+        }));
+        assert!(military.military);
+        assert_eq!(military.unusual_reason(), Some("military"));
+
+        let rare = only(json!({
+            "ac": [{ "hex": "rare123", "lat": 1.0, "lon": 2.0, "t": "A388" }]
+        }));
+        assert_eq!(rare.unusual_reason(), Some("rare type"));
+
+        let ordinary = only(json!({
+            "ac": [{ "hex": "abc123", "lat": 1.0, "lon": 2.0, "t": "A20N", "squawk": "1000" }]
+        }));
+        assert_eq!(ordinary.unusual_reason(), None);
     }
 
     #[test]

@@ -180,3 +180,11 @@ fixtures/
 - `CHANGELOG.md`, tag `v0.1.0`.
 
 **Done when:** a fresh `cargo install --path .` works and the README is accurate.
+
+## Ideas for after 0.1 (don't build these yet)
+
+- Satellites and the ISS from TLEs (the `sgp4` crate), drawn as a slow-moving dot.
+- The moon and bright planets in the night sky.
+- Different glyphs for helicopters, gliders and balloons using the ADS-B emitter category.
+- A notification when something unusual flies over (military, emergency squawk 7700, a rare type).
+- Horizon mode: a side-on view looking in one compass direction, with planes rising over a skyline.

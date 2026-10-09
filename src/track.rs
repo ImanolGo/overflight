@@ -10,7 +10,7 @@
 use std::collections::VecDeque;
 
 use crate::geo::{self, GeoPoint};
-use crate::providers::Aircraft;
+use crate::providers::{Aircraft, AircraftKind};
 
 /// Drop an aircraft this many seconds after its last observation.
 pub const DROP_AFTER_S: f64 = 60.0;
@@ -52,6 +52,10 @@ pub struct Track {
     pub callsign: Option<String>,
     pub registration: Option<String>,
     pub type_code: Option<String>,
+    /// Aircraft kind from the ADS-B emitter category.
+    pub kind: AircraftKind,
+    /// Why this aircraft is unusual, if it is.
+    pub unusual: Option<&'static str>,
     pub on_ground: bool,
     pub alt_m: Option<f64>,
     pub track_deg: Option<f64>,
@@ -80,6 +84,8 @@ impl Track {
             callsign: observation.callsign.clone(),
             registration: observation.registration.clone(),
             type_code: observation.type_code.clone(),
+            kind: observation.kind,
+            unusual: observation.unusual_reason(),
             on_ground: observation.on_ground,
             alt_m: observation.alt_m,
             track_deg: observation.track_deg,
@@ -112,6 +118,8 @@ impl Track {
         self.callsign = observation.callsign.clone();
         self.registration = observation.registration.clone();
         self.type_code = observation.type_code.clone();
+        self.kind = observation.kind;
+        self.unusual = observation.unusual_reason();
         self.on_ground = observation.on_ground;
         self.alt_m = observation.alt_m;
         self.track_deg = observation.track_deg;
@@ -251,6 +259,7 @@ mod tests {
             track_deg: Some(track),
             vertical_rate_ms: Some(0.0),
             position_age_s: 0.0,
+            ..Aircraft::default()
         }
     }
 

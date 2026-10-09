@@ -19,6 +19,7 @@ use ratatui::widgets::{Block, Paragraph, Wrap};
 
 use crate::app::App;
 use crate::geo;
+use crate::providers::AircraftKind;
 use crate::track::Track;
 
 /// Terminal cells are approximately twice as tall as they are wide.
@@ -345,12 +346,17 @@ pub fn render(frame: &mut Frame, app: &App) {
         let (x, y) = geo::project(azimuth, elevation, app.sky_orientation);
         let (col, row) = geometry.direction_cell(x, y);
         let alpha = track.alpha(app.now_s);
-        let mut style = Style::default().fg(altitude_color(track.alt_m, alpha));
+        let colour = if track.unusual.is_some() {
+            alert_color(alpha)
+        } else {
+            altitude_color(track.alt_m, alpha)
+        };
+        let mut style = Style::default().fg(colour);
         if app.selected.as_deref() == Some(track.id.as_str()) {
             style = style.add_modifier(Modifier::BOLD);
         }
-        let arrow = screen_arrow(track.track_deg, app.sky_orientation);
-        buffer.set_string(origin_x + col, origin_y + row, arrow.to_string(), style);
+        let glyph = aircraft_glyph(track, app.sky_orientation);
+        buffer.set_string(origin_x + col, origin_y + row, glyph.to_string(), style);
         if app.show_callsigns {
             buffer.set_string(
                 origin_x + col + 2,
@@ -369,7 +375,40 @@ pub fn render(frame: &mut Frame, app: &App) {
         render_detail(frame, sky_area, track, app, &palette);
     }
 
+    if let Some(message) = app.active_notification() {
+        render_notification(frame, sky_area, message, &palette);
+    }
+
     frame.render_widget(Paragraph::new(status_line(app)), status_area);
+}
+
+/// A transient banner for an unusual aircraft.
+fn render_notification(frame: &mut Frame, area: Rect, message: &str, palette: &Palette) {
+    let banner = Paragraph::new(format!("⚠ {message}"))
+        .alignment(Alignment::Center)
+        .style(
+            Style::default()
+                .fg(alert_color(1.0))
+                .bg(rgb(palette.background)),
+        );
+    frame.render_widget(banner, Rect::new(area.x, area.y, area.width, 1));
+}
+
+/// The glyph for an aircraft: a heading arrow, or a distinct symbol for the
+/// kinds that are not ordinary aeroplanes.
+#[must_use]
+pub fn aircraft_glyph(track: &Track, sky_orientation: bool) -> char {
+    match track.kind {
+        AircraftKind::Helicopter => '⊛',
+        AircraftKind::Glider => '⌁',
+        AircraftKind::Balloon => '◯',
+        AircraftKind::Plane => screen_arrow(track.track_deg, sky_orientation),
+    }
+}
+
+/// Alert colour for unusual aircraft and the notification banner.
+fn alert_color(alpha: f64) -> Color {
+    dim((255.0, 96.0, 96.0), alpha)
 }
 
 /// A centred hint when there is nothing to draw.
@@ -638,6 +677,33 @@ mod tests {
         assert_eq!(screen_arrow(Some(270.0), true), '→');
         assert_eq!(screen_arrow(Some(180.0), false), '↓');
         assert_eq!(screen_arrow(None, true), '·');
+    }
+
+    #[test]
+    fn special_kinds_get_distinct_glyphs() {
+        use crate::geo::GeoPoint;
+        use crate::providers::{Aircraft, AircraftKind};
+        use crate::track::Track;
+
+        let make = |kind| {
+            let aircraft = Aircraft {
+                id: "abc123".to_string(),
+                kind,
+                lat: 52.5,
+                lon: 13.4,
+                ..Aircraft::default()
+            };
+            Track::new(&aircraft, GeoPoint::new(52.52, 13.40, 0.0), 0.0)
+        };
+
+        assert_eq!(aircraft_glyph(&make(AircraftKind::Helicopter), true), '⊛');
+        assert_eq!(aircraft_glyph(&make(AircraftKind::Glider), true), '⌁');
+        assert_eq!(aircraft_glyph(&make(AircraftKind::Balloon), true), '◯');
+        let plane = make(AircraftKind::Plane);
+        assert_eq!(
+            aircraft_glyph(&plane, true),
+            screen_arrow(plane.track_deg, true)
+        );
     }
 
     #[test]

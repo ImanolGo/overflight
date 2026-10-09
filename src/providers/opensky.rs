@@ -12,7 +12,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{Aircraft, Provider, Query, Recorder};
+use super::{Aircraft, AircraftKind, Provider, Query, Recorder};
 
 const AUTH_URL: &str =
     "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token";
@@ -312,6 +312,7 @@ fn parse_state(state: &Value, response_time: Option<f64>) -> Option<Aircraft> {
         callsign,
         registration: None,
         type_code: None,
+        kind: kind_from_opensky(field(17).and_then(Value::as_i64)),
         lat,
         lon,
         // Geometric altitude if available, else barometric. Both in metres.
@@ -321,7 +322,24 @@ fn parse_state(state: &Value, response_time: Option<f64>) -> Option<Aircraft> {
         track_deg: number(10),
         vertical_rate_ms: number(11),
         position_age_s,
+        squawk: field(14)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|squawk| !squawk.is_empty()),
+        emergency: None,
+        military: false,
+        interesting: false,
     })
+}
+
+/// Map an OpenSky category integer to a kind.
+fn kind_from_opensky(category: Option<i64>) -> AircraftKind {
+    match category {
+        Some(8) => AircraftKind::Helicopter,
+        Some(9) => AircraftKind::Glider,
+        Some(10) => AircraftKind::Balloon,
+        _ => AircraftKind::Plane,
+    }
 }
 
 /// Percent-encode a value for an `application/x-www-form-urlencoded` body.

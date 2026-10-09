@@ -66,6 +66,8 @@ pub struct App {
     pub stars: Vec<Star>,
     /// Id of the selected aircraft, if any.
     pub selected: Option<String>,
+    /// Latest "unusual aircraft" notification and when it arrived.
+    pub notification: Option<(String, f64)>,
     /// Preferred display units.
     pub units: Units,
     /// Ignore aircraft whose elevation is below this, degrees.
@@ -90,6 +92,7 @@ impl App {
             sun_elevation_deg: 90.0,
             stars: generate_stars(),
             selected: None,
+            notification: None,
             units: Units::Metric,
             min_elevation_deg: 0.0,
         }
@@ -110,7 +113,11 @@ impl App {
             {
                 track.apply(observation, observer, now_s);
             } else {
-                self.tracks.push(Track::new(observation, observer, now_s));
+                let track = Track::new(observation, observer, now_s);
+                if let Some(reason) = track.unusual {
+                    self.notification = Some((format!("{} · {reason}", track.label()), now_s));
+                }
+                self.tracks.push(track);
             }
         }
         self.last_update_s = Some(now_s);
@@ -184,6 +191,15 @@ impl App {
         let id = self.selected.as_deref()?;
         self.tracks.iter().find(|track| track.id == id)
     }
+
+    /// The active "unusual aircraft" notification, if one is still fresh.
+    #[must_use]
+    pub fn active_notification(&self) -> Option<&str> {
+        const NOTIFICATION_SECONDS: f64 = 8.0;
+        self.notification.as_ref().and_then(|(message, at)| {
+            (self.now_s - at < NOTIFICATION_SECONDS).then_some(message.as_str())
+        })
+    }
 }
 
 #[cfg(test)]
@@ -212,6 +228,7 @@ mod tests {
             track_deg: Some(90.0),
             vertical_rate_ms: Some(0.0),
             position_age_s: 0.0,
+            ..Aircraft::default()
         }
     }
 
@@ -271,6 +288,18 @@ mod tests {
         );
         assert_eq!(app.live_count(), 1);
         assert_eq!(app.tracks[0].id, "high");
+    }
+
+    #[test]
+    fn an_unusual_aircraft_raises_a_notification() {
+        let mut app = App::new(query(), "test");
+        let mut observation = observation("mil", 52.6, 13.5);
+        observation.military = true;
+        app.apply(&[observation], 0.0);
+        assert!(app.active_notification().is_some());
+
+        app.update(20.0, 0.0);
+        assert!(app.active_notification().is_none());
     }
 
     #[test]
