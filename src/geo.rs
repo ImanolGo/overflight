@@ -140,6 +140,17 @@ mod tests {
         GeoPoint::new(52.52, 13.40, 0.0)
     }
 
+    /// Angular distance between two azimuths, accounting for the 0/360 wrap.
+    fn azimuth_difference(a: f64, b: f64) -> f64 {
+        let d = (a - b).rem_euclid(360.0);
+        d.min(360.0 - d)
+    }
+
+    fn assert_azimuth(actual: f64, expected: f64) {
+        let diff = azimuth_difference(actual, expected);
+        assert!(diff < 0.1, "azimuth {actual} is {diff} deg from {expected}");
+    }
+
     #[test]
     fn directly_overhead_is_ninety_degrees() {
         let observer = berlin();
@@ -154,7 +165,7 @@ mod tests {
         let observer = berlin();
         let target = destination(observer, 0.0, 50_000.0, 0.0);
         let azel = az_el(observer, target);
-        assert_abs_diff_eq!(azel.azimuth_deg, 0.0, epsilon = 0.1);
+        assert_azimuth(azel.azimuth_deg, 0.0);
         assert!(
             azel.elevation_deg < 0.0 && azel.elevation_deg > -0.5,
             "expected just below the horizon, got {}",
@@ -167,7 +178,7 @@ mod tests {
         let observer = berlin();
         let target = destination(observer, 0.0, 100_000.0, 10_000.0);
         let azel = az_el(observer, target);
-        assert_abs_diff_eq!(azel.azimuth_deg, 0.0, epsilon = 0.1);
+        assert_azimuth(azel.azimuth_deg, 0.0);
         // 5.3°, not the flat-Earth 5.7°.
         assert_abs_diff_eq!(azel.elevation_deg, 5.3, epsilon = 0.1);
     }
@@ -177,8 +188,8 @@ mod tests {
         let observer = berlin();
         let east = destination(observer, 90.0, 50_000.0, 5_000.0);
         let west = destination(observer, 270.0, 50_000.0, 5_000.0);
-        assert_abs_diff_eq!(az_el(observer, east).azimuth_deg, 90.0, epsilon = 0.1);
-        assert_abs_diff_eq!(az_el(observer, west).azimuth_deg, 270.0, epsilon = 0.1);
+        assert_azimuth(az_el(observer, east).azimuth_deg, 90.0);
+        assert_azimuth(az_el(observer, west).azimuth_deg, 270.0);
     }
 
     #[test]
@@ -186,7 +197,7 @@ mod tests {
         let observer = GeoPoint::new(0.0, 179.9, 0.0);
         let target = GeoPoint::new(0.0, -179.9, 5_000.0);
         let azel = az_el(observer, target);
-        assert_abs_diff_eq!(azel.azimuth_deg, 90.0, epsilon = 0.1);
+        assert_azimuth(azel.azimuth_deg, 90.0);
         assert!(azel.elevation_deg > 0.0);
     }
 
