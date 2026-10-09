@@ -77,6 +77,7 @@ overflight --radius-km 40      # look closer to home
 overflight --alt 1650          # how high you are, for low, close traffic
 overflight --interval 10       # seconds between updates
 overflight --log ~/flights.csv # log each aircraft when it leaves the sky
+overflight --no-mouse          # leave the mouse for text selection
 overflight --source local --url http://your-pi/data/aircraft.json
 overflight --source opensky    # uses OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET
 ```
@@ -94,6 +95,9 @@ Keys while it's running:
 | `←` / `→` | Turn the horizon view |
 | `c` | Show or hide constellation lines |
 | `u` | Switch between metric and imperial |
+
+Click an aircraft (or a satellite) to select it. `--no-mouse` turns that off and
+leaves the mouse for text selection.
 
 The detail box for the selected aircraft shows its callsign, registration,
 aircraft type, altitude, ground speed, distance from you, and where to look

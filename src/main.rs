@@ -6,7 +6,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind};
+use crossterm::execute;
 
 use overflight::app::App;
 use overflight::config::{FileConfig, Units};
@@ -111,6 +112,10 @@ struct Cli {
     #[arg(long, value_name = "PATH")]
     log: Option<PathBuf>,
 
+    /// Do not capture the mouse, so you can select text as usual.
+    #[arg(long)]
+    no_mouse: bool,
+
     /// Fetch once, print a table of aircraft, then exit.
     #[arg(long, hide = true)]
     dump: bool,
@@ -151,6 +156,7 @@ struct Settings {
     rare_types: Vec<String>,
     screensaver: bool,
     log: Option<PathBuf>,
+    no_mouse: bool,
 }
 
 impl Settings {
@@ -236,6 +242,7 @@ impl Settings {
                 .unwrap_or_default(),
             screensaver: cli.screensaver,
             log: cli.log.clone(),
+            no_mouse: cli.no_mouse,
         })
     }
 }
@@ -439,7 +446,11 @@ fn run_live(settings: &Settings) -> Result<()> {
         .transpose()?
         .map(|seconds| seconds as f64);
 
+    let mouse = !settings.no_mouse;
     let mut terminal = ratatui::init();
+    if mouse {
+        let _ = execute!(std::io::stdout(), event::EnableMouseCapture);
+    }
     let result = event_loop(
         &mut terminal,
         &mut app,
@@ -448,6 +459,9 @@ fn run_live(settings: &Settings) -> Result<()> {
         fixed_time,
         settings.screensaver,
     );
+    if mouse {
+        let _ = execute!(std::io::stdout(), event::DisableMouseCapture);
+    }
     ratatui::restore();
     result
 }
@@ -529,12 +543,21 @@ fn event_loop(
         };
         deadline += frame_interval;
         let timeout = deadline.saturating_duration_since(Instant::now());
-        if event::poll(timeout)?
-            && let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-            && (screensaver || handle_key(app, key.code))
-        {
-            break;
+        if event::poll(timeout)? {
+            match event::read()? {
+                Event::Key(key)
+                    if key.kind == KeyEventKind::Press
+                        && (screensaver || handle_key(app, key.code)) =>
+                {
+                    break;
+                }
+                Event::Mouse(mouse) if mouse.kind == MouseEventKind::Down(MouseButton::Left) => {
+                    if let Ok(area) = terminal.size() {
+                        render::select_at(app, area.into(), mouse.column, mouse.row);
+                    }
+                }
+                _ => {}
+            }
         }
         if Instant::now() > deadline {
             deadline = Instant::now();

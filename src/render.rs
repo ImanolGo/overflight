@@ -264,6 +264,71 @@ impl Compass {
     }
 }
 
+/// Select the aircraft or satellite nearest a clicked cell, if within a few
+/// cells. Returns whether something was selected.
+pub fn select_at(app: &mut App, area: Rect, click_col: u16, click_row: u16) -> bool {
+    const RADIUS_CELLS: f64 = 4.0;
+    if app.horizon {
+        return false;
+    }
+    let [sky_area, _status] =
+        Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(area);
+    if click_col < sky_area.left()
+        || click_col >= sky_area.right()
+        || click_row < sky_area.top()
+        || click_row >= sky_area.bottom()
+    {
+        return false;
+    }
+    let geometry = SkyGeometry::new(sky_area.width, sky_area.height);
+
+    let mut best: Option<(f64, String, bool)> = None;
+    let mut consider = |cell: (u16, u16), id: String, satellite: bool| {
+        let distance =
+            f64::from(cell.0.abs_diff(click_col)).hypot(f64::from(cell.1.abs_diff(click_row)));
+        if best
+            .as_ref()
+            .is_none_or(|(best_distance, _, _)| distance < *best_distance)
+        {
+            best = Some((distance, id, satellite));
+        }
+    };
+
+    for track in &app.tracks {
+        let (azimuth, elevation, _) = track.az_el();
+        if elevation < 0.0 {
+            continue;
+        }
+        let (x, y) = geo::project(azimuth, elevation, app.sky_orientation);
+        consider(geometry.direction_cell(x, y), track.id.clone(), false);
+    }
+    for satellite in &app.satellite_positions {
+        if satellite.elevation_deg < 0.0 {
+            continue;
+        }
+        let (x, y) = geo::project(
+            satellite.azimuth_deg,
+            satellite.elevation_deg,
+            app.sky_orientation,
+        );
+        consider(geometry.direction_cell(x, y), satellite.name.clone(), true);
+    }
+
+    match best {
+        Some((distance, id, satellite)) if distance <= RADIUS_CELLS => {
+            if satellite {
+                app.selected_satellite = Some(id);
+                app.selected = None;
+            } else {
+                app.selected = Some(id);
+                app.selected_satellite = None;
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
 /// Draw the whole app into `frame`.
 pub fn render(frame: &mut Frame, app: &App) {
     let area = frame.area();
@@ -1232,6 +1297,37 @@ mod tests {
         };
 
         assert_ne!(render_text(false), render_text(true));
+    }
+
+    #[test]
+    fn clicking_near_a_plane_selects_it() {
+        use crate::providers::Aircraft;
+
+        let mut app = App::new(
+            crate::providers::Query {
+                lat: 52.52,
+                lon: 13.40,
+                radius_km: 80.0,
+                alt_m: 0.0,
+            },
+            "test",
+        );
+        // Directly overhead, so it projects to the centre of the circle.
+        let aircraft = Aircraft {
+            id: "abc123".to_string(),
+            lat: 52.52,
+            lon: 13.40,
+            alt_m: Some(10_000.0),
+            ..Aircraft::default()
+        };
+        app.apply(&[aircraft], 0.0);
+        app.update(0.0, 0.0);
+
+        let area = Rect::new(0, 0, 80, 24);
+        assert!(select_at(&mut app, area, 40, 11));
+        assert_eq!(app.selected.as_deref(), Some("abc123"));
+        // A click far from anything selects nothing new.
+        assert!(!select_at(&mut app, area, 1, 1));
     }
 
     #[test]
