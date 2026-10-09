@@ -17,6 +17,12 @@ all pass at each stage. Tests never touch the network: every data source sits
 behind the `Provider` trait, and the tests use the fixture provider and inline
 JSON. `unwrap`/`expect` are confined to tests and `main` setup.
 
+The **binary is the product**, so visible CLI flags, config keys and the logbook
+format are treated as a stable interface from 1.0: renaming or removing one is a
+breaking change. Hidden flags (`--dump`, `--record`, `--time`, `--tle-group`)
+are for development and may change in any release. The library modules are not a
+supported API.
+
 ## The milestones
 
 | Stage | Commit subject | What it delivers |
