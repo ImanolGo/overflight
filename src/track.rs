@@ -115,9 +115,17 @@ impl Track {
         self.anchor_time_s = now_s;
         self.velocity = velocity;
 
-        self.callsign = observation.callsign.clone();
-        self.registration = observation.registration.clone();
-        self.type_code = observation.type_code.clone();
+        // Keep the last known identity when a source omits a field, so the
+        // label does not flip between a callsign and a hex code.
+        if observation.callsign.is_some() {
+            self.callsign = observation.callsign.clone();
+        }
+        if observation.registration.is_some() {
+            self.registration = observation.registration.clone();
+        }
+        if observation.type_code.is_some() {
+            self.type_code = observation.type_code.clone();
+        }
         self.kind = observation.kind;
         self.unusual = observation.unusual_reason();
         self.on_ground = observation.on_ground;
@@ -301,6 +309,27 @@ mod tests {
         let target_enu = target.enu();
         assert_abs_diff_eq!(settled[1], target_enu[1], epsilon = 1e-6);
         assert!((settled[1] - at_ease_start[1]).abs() > 1.0);
+    }
+
+    #[test]
+    fn keeps_the_last_known_label_when_a_field_goes_missing() {
+        let first = aircraft(52.529, 13.40, 1000.0, 90.0, 100.0);
+        let mut track = Track::new(&first, observer(), 0.0);
+        assert_eq!(track.label(), "TEST1");
+
+        // A later observation with no callsign must not clear the label.
+        let mut blank = aircraft(52.530, 13.40, 1000.0, 90.0, 100.0);
+        blank.callsign = None;
+        blank.registration = None;
+        blank.type_code = None;
+        track.apply(&blank, observer(), 5.0);
+        assert_eq!(track.label(), "TEST1");
+
+        // A new callsign does replace it.
+        let mut renamed = aircraft(52.531, 13.40, 1000.0, 90.0, 100.0);
+        renamed.callsign = Some("NEW42".to_string());
+        track.apply(&renamed, observer(), 10.0);
+        assert_eq!(track.label(), "NEW42");
     }
 
     #[test]
