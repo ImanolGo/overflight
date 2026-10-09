@@ -55,11 +55,19 @@ impl Provider for AirplanesLive {
 
     fn fetch(&mut self, query: &Query) -> Result<Vec<Aircraft>> {
         let url = point_url(&self.base_url, query);
-        let raw = self
+        let response = self
             .client
             .get(&url)
             .send()
-            .context("airplanes.live request")?
+            .context("airplanes.live request")?;
+        if let Some(limited) = super::rate_limit_from(
+            &response,
+            "airplanes.live rate limited",
+            Duration::from_secs(60),
+        ) {
+            return Err(limited.into());
+        }
+        let raw = response
             .error_for_status()
             .context("airplanes.live returned an error")?
             .text()

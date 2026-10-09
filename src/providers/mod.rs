@@ -17,6 +17,48 @@ pub mod local;
 pub mod opensky;
 pub mod readsb;
 
+/// A provider asked us to slow down.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RateLimited {
+    /// How long the provider asked us to wait.
+    pub retry_after: std::time::Duration,
+    /// A short reason, e.g. "OpenSky quota used up".
+    pub reason: &'static str,
+}
+
+impl std::fmt::Display for RateLimited {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.reason)
+    }
+}
+
+impl std::error::Error for RateLimited {}
+
+/// If `response` is a rate-limit response, the delay to wait before retrying.
+///
+/// Reads the standard `Retry-After` header (seconds); anything else, or a
+/// missing header, falls back to `default`.
+pub(crate) fn rate_limit_from(
+    response: &reqwest::blocking::Response,
+    reason: &'static str,
+    default: std::time::Duration,
+) -> Option<RateLimited> {
+    if !matches!(response.status().as_u16(), 429 | 503) {
+        return None;
+    }
+    let retry_after = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(std::time::Duration::from_secs)
+        .unwrap_or(default);
+    Some(RateLimited {
+        retry_after,
+        reason,
+    })
+}
+
 /// The kind of aircraft, from its ADS-B emitter category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AircraftKind {

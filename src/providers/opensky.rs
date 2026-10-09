@@ -12,7 +12,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{Aircraft, AircraftKind, Provider, Query, Recorder};
+use super::{Aircraft, AircraftKind, Provider, Query, RateLimited, Recorder};
 
 const AUTH_URL: &str =
     "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token";
@@ -211,12 +211,19 @@ impl Provider for OpenSky {
                 continue;
             }
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                let retry = response
+                let retry_after = response
                     .headers()
                     .get("X-Rate-Limit-Retry-After-Seconds")
+                    .or_else(|| response.headers().get(reqwest::header::RETRY_AFTER))
                     .and_then(|value| value.to_str().ok())
-                    .unwrap_or("unknown");
-                bail!("OpenSky rate limit reached (retry after {retry}s)");
+                    .and_then(|value| value.trim().parse::<u64>().ok())
+                    .map(Duration::from_secs)
+                    .unwrap_or(Duration::from_secs(60));
+                return Err(RateLimited {
+                    retry_after,
+                    reason: "OpenSky quota used up",
+                }
+                .into());
             }
 
             let raw = response

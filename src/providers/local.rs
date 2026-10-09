@@ -48,11 +48,19 @@ impl Provider for Local {
     }
 
     fn fetch(&mut self, query: &Query) -> Result<Vec<Aircraft>> {
-        let raw = self
+        let response = self
             .client
             .get(&self.url)
             .send()
-            .context("local receiver request")?
+            .context("local receiver request")?;
+        if let Some(limited) = super::rate_limit_from(
+            &response,
+            "local receiver rate limited",
+            Duration::from_secs(60),
+        ) {
+            return Err(limited.into());
+        }
+        let raw = response
             .error_for_status()
             .context("local receiver returned an error")?
             .text()
