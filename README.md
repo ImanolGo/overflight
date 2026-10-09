@@ -46,6 +46,9 @@ cargo install --git https://github.com/ImanolGo/overflight   # latest from git
 cargo install --path .                                      # from a checkout
 ```
 
+The minimum supported Rust version is **1.95**. It only changes when a
+dependency requires it, and only in a minor release.
+
 ## Usage
 
 Tell it where you are:
@@ -135,6 +138,23 @@ Satellites come from Two-Line Elements: overflight fetches the current set from 
 `overflight --demo` replays a minute of recorded traffic (captured around Heathrow) from the bundled fixture, so you can try it with no receiver and no network at all. It also uses a recorded set of TLEs.
 
 Coverage depends on volunteer receivers, so some areas, especially rural ones and over the sea, will be quieter than reality.
+
+## Data sources and credits
+
+overflight is only a viewer; the data belongs to the projects that make it, and
+their terms matter. With thanks to:
+
+- [adsb.lol](https://adsb.lol) — the default source — and
+  [airplanes.live](https://airplanes.live) — for its feeders — free community
+  ADS-B networks built from volunteer receivers around the world.
+  airplanes.live is for non-commercial use.
+- The [OpenSky Network](https://opensky-network.org), for the network behind
+  `--source opensky`.
+- [Celestrak](https://celestrak.org), for the satellite element sets; see its
+  [usage policy](https://celestrak.org/usage-policy.php).
+- [adsbdb](https://www.adsbdb.com/), for aircraft routes.
+- The [Yale Bright Star Catalogue](https://cdsarc.cds.unistra.fr/viz-bin/cat/V/50)
+  (public domain), for the night sky.
 
 ## Privacy
 

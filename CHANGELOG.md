@@ -6,12 +6,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `--no-routes` and `routes = false` opt out of the adsbdb route lookup.
+- `--colors auto|truecolor|256|none`, with 256-colour fallback when the terminal
+  is not truecolor and respect for `NO_COLOR`.
+- A man page and Bash/Zsh/Fish completions, shipped in the `.deb`, the release
+  archives and the installers.
+- `SECURITY.md` and GitHub issue templates, and a stated MSRV policy.
+
 ### Changed
 
 - The default data source is now [adsb.lol](https://adsb.lol), which is open to
   everyone. airplanes.live now limits its API to people who feed it ADS-B data,
   so it answers `403` to other clients; it is still available with
   `--source airplanes-live`.
+- The logbook (`--log`) has a versioned format: a `# overflight logbook v1`
+  comment, `hex` and `closest_km` columns, and aircraft still in the sky are
+  written when you quit.
+- Unknown config keys are reported with the closest valid key instead of being
+  silently ignored.
+- SIGHUP, SIGTERM and SIGINT now shut down cleanly, like pressing `q`.
+- The Rust library modules are no longer a supported API; the binary is the
+  product.
 
 ## [0.4.0] - 2026-10-09
 

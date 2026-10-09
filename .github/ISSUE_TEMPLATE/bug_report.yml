@@ -1,0 +1,70 @@
+name: Bug report
+description: Something is wrong or looks wrong
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you see instead?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: overflight --version
+      placeholder: overflight 0.4.0
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: e.g. Ubuntu 24.04, macOS 15.1, Windows 11
+    validations:
+      required: true
+
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal
+      description: Which terminal emulator (and version), and your $TERM / $COLORTERM if colour looks wrong. Say so if you are in tmux, screen or SSH.
+      placeholder: e.g. kitty 0.40, TERM=xterm-kitty, COLORTERM=truecolor
+    validations:
+      required: true
+
+  - type: dropdown
+    id: source
+    attributes:
+      label: Data source
+      options:
+        - adsb.lol (default)
+        - airplanes.live
+        - OpenSky
+        - local receiver
+        - --demo (no network)
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Recorded responses (if you can)
+      description: |
+        Re-run with `--record <dir>` to save the raw responses, then attach the
+        directory (zip it if large). This makes provider bugs much easier to
+        reproduce. `overflight --dump --record <dir>` captures a single frame.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, config (remove anything private), the output of `overflight --dump`, and so on.
+    validations:
+      required: false
