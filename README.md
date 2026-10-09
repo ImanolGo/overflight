@@ -24,7 +24,7 @@ It's a screensaver, mostly. But it's also the quickest way to answer "what was t
 - Planes higher in the sky are closer to you. A plane near the edge is far away, low on the horizon, or both.
 - Like a star chart, east and west are swapped compared to a map. That's what the sky looks like when you face up with north at the top of your head. Press `m` if you'd rather have it the map way round.
 - Helicopters, gliders and balloons are drawn with their own symbol rather than a heading arrow. Military aircraft, emergency squawks and a few rare types are highlighted, with a banner when one appears.
-- At night the Moon and the bright planets are drawn with their astronomical symbols, and satellites — including the ISS — drift across as slow-moving dots.
+- The Moon is drawn whenever it is above the horizon, even in daylight; the bright planets appear at twilight and night, and satellites — including the ISS — drift across as slow-moving dots.
 
 Press `h` for a side-on view instead: a skyline looking north, with planes rising over it.
 

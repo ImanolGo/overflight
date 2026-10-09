@@ -22,6 +22,7 @@ use crate::app::App;
 use crate::geo;
 use crate::providers::AircraftKind;
 use crate::satellite::SatellitePosition;
+use crate::sky::Body;
 use crate::track::Track;
 
 /// Terminal cells are approximately twice as tall as they are wide.
@@ -355,23 +356,26 @@ pub fn render(frame: &mut Frame, app: &App) {
     let mut labels: Vec<(u16, u16, String, Style, bool)> = Vec::new();
 
     // The Moon, bright planets and satellites first, so plane labels can avoid
-    // them.
-    if palette.kind != SkyKind::Day {
-        for body in &app.bodies {
-            if body.elevation_deg < 0.0 {
-                continue;
-            }
-            let (x, y) = geo::project(body.azimuth_deg, body.elevation_deg, app.sky_orientation);
-            let (col, row) = geometry.direction_cell(x, y);
-            buffer.set_string(
-                origin_x + col,
-                origin_y + row,
-                body.body.glyph().to_string(),
-                Style::default().fg(rgb(BODY_COLOR)),
-            );
-            mark_cell(&mut taken, sky_area.width, col, row);
+    // them. The Moon is drawn by day too, when it is above the horizon.
+    for body in &app.bodies {
+        if body.elevation_deg < 0.0 {
+            continue;
         }
+        if palette.kind == SkyKind::Day && body.body != Body::Moon {
+            continue;
+        }
+        let (x, y) = geo::project(body.azimuth_deg, body.elevation_deg, app.sky_orientation);
+        let (col, row) = geometry.direction_cell(x, y);
+        buffer.set_string(
+            origin_x + col,
+            origin_y + row,
+            body.body.glyph().to_string(),
+            Style::default().fg(rgb(BODY_COLOR)),
+        );
+        mark_cell(&mut taken, sky_area.width, col, row);
+    }
 
+    if palette.kind != SkyKind::Day {
         for satellite in &app.satellite_positions {
             if satellite.elevation_deg < 0.0 {
                 continue;
@@ -1109,6 +1113,52 @@ mod tests {
         assert!(failed.contains("No aircraft from airplanes.live"));
         assert!(failed.contains("returned an error"));
         assert!(failed.contains("--demo"));
+    }
+
+    #[test]
+    fn the_moon_is_drawn_by_day_but_planets_are_not() {
+        use crate::providers::Aircraft;
+        use crate::sky::{Body, BodyPosition};
+
+        let mut app = App::new(
+            crate::providers::Query {
+                lat: 52.52,
+                lon: 13.40,
+                radius_km: 80.0,
+                alt_m: 0.0,
+            },
+            "test",
+        );
+        // One aircraft, so the empty-sky hint is not drawn over the bodies.
+        let aircraft = Aircraft {
+            id: "abc123".to_string(),
+            lat: 52.6,
+            lon: 13.5,
+            alt_m: Some(10_000.0),
+            ..Aircraft::default()
+        };
+        app.apply(&[aircraft], 0.0);
+        app.update(0.0, 0.0);
+
+        app.sun_elevation_deg = 30.0; // daytime
+        app.bodies = vec![
+            BodyPosition {
+                body: Body::Moon,
+                azimuth_deg: 90.0,
+                elevation_deg: 45.0,
+            },
+            BodyPosition {
+                body: Body::Mars,
+                azimuth_deg: 90.0,
+                elevation_deg: 30.0,
+            },
+        ];
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains('☾'), "the Moon should be drawn by day");
+        assert!(!text.contains('♂'), "planets stay for twilight and night");
     }
 
     #[test]
