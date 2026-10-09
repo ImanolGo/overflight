@@ -16,6 +16,9 @@ use crate::providers::{Aircraft, Provider, Query};
 const MAX_BACKOFF: Duration = Duration::from_secs(120);
 /// Sleep in small steps so shutdown is prompt.
 const SLEEP_STEP: Duration = Duration::from_millis(100);
+/// How long `stop` waits for the thread before detaching it. The thread may be
+/// inside a blocking HTTP request, so a clean join could take many seconds.
+const STOP_GRACE: Duration = Duration::from_millis(200);
 
 /// A message from the fetch thread.
 #[derive(Debug)]
@@ -50,11 +53,20 @@ impl Fetcher {
         }
     }
 
-    /// Ask the thread to stop and wait for it.
+    /// Ask the thread to stop.
+    ///
+    /// We wait at most [`STOP_GRACE`] for the thread to notice and exit, then
+    /// detach it. The thread may be inside a blocking HTTP request, and we must
+    /// not keep the process alive after the terminal is restored. It holds
+    /// nothing that needs flushing.
     pub fn stop(&mut self) {
         self.shutdown.store(true, Ordering::Relaxed);
         if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+            let deadline = std::time::Instant::now() + STOP_GRACE;
+            while !handle.is_finished() && std::time::Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(5));
+            }
+            // Dropping the handle detaches the thread if it is still running.
         }
     }
 }
@@ -162,6 +174,22 @@ mod tests {
         }
     }
 
+    /// A provider whose fetch blocks, like a slow HTTP request.
+    struct BlockingProvider;
+
+    impl Provider for BlockingProvider {
+        fn name(&self) -> &'static str {
+            "blocking"
+        }
+        fn min_interval(&self) -> Duration {
+            Duration::from_millis(1)
+        }
+        fn fetch(&mut self, _query: &Query) -> Result<Vec<Aircraft>> {
+            thread::sleep(Duration::from_secs(5));
+            Ok(Vec::new())
+        }
+    }
+
     #[test]
     fn fetches_repeatedly_then_stops() {
         let provider = Box::new(FixtureProvider::from_json_str(FIXTURE).unwrap());
@@ -185,6 +213,25 @@ mod tests {
             other => panic!("unexpected event: {other:?}"),
         }
         fetcher.stop();
+    }
+
+    #[test]
+    fn dropping_the_fetcher_is_quick_even_when_the_provider_blocks() {
+        let fetcher = Fetcher::spawn(
+            Box::new(BlockingProvider),
+            query(),
+            Duration::from_millis(1),
+        );
+        // Give the thread time to enter the blocking fetch.
+        thread::sleep(Duration::from_millis(50));
+
+        let started = std::time::Instant::now();
+        drop(fetcher);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "dropping the fetcher took {elapsed:?}"
+        );
     }
 
     #[test]

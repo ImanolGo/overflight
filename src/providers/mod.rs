@@ -154,7 +154,8 @@ pub const USER_AGENT: &str = concat!(
 pub fn http_client() -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
         .user_agent(USER_AGENT)
-        .timeout(Duration::from_secs(20))
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(10))
         .build()?)
 }
 

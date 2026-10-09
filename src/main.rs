@@ -194,7 +194,16 @@ fn main() -> Result<()> {
     if settings.dump {
         return dump(&settings);
     }
-    run_live(&settings)
+
+    // A detached fetcher thread may be blocked in an HTTP request we are not
+    // waiting for. Returning from `main` normally lets the runtime tear down,
+    // which can stall on that thread, so exit explicitly once the terminal has
+    // been restored.
+    let result = run_live(&settings);
+    if let Err(error) = &result {
+        eprintln!("Error: {error:#}");
+    }
+    std::process::exit(if result.is_ok() { 0 } else { 1 });
 }
 
 /// Build the provider and query from the resolved settings.
