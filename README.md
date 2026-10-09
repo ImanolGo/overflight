@@ -4,13 +4,13 @@
 [![docs.rs](https://img.shields.io/docsrs/overflight/latest?v=3)](https://docs.rs/overflight)
 [![CI](https://github.com/ImanolGo/overflight/actions/workflows/ci.yml/badge.svg)](https://github.com/ImanolGo/overflight/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ImanolGo/overflight?v=2)](https://github.com/ImanolGo/overflight/releases)
-[![License: MIT](https://img.shields.io/crates/l/overflight.svg?v=2)](LICENSE)
+[![License: MIT](https://img.shields.io/crates/l/overflight.svg?v=2)](https://github.com/ImanolGo/overflight/blob/main/LICENSE)
 
 Look up from your terminal.
 
 ![overflight: aircraft drifting across a starry night sky, with a detail box for the selected plane](https://raw.githubusercontent.com/ImanolGo/overflight/main/demo.gif)
 
-> **Status:** 0.1 — usable and still growing. The plan lives in [PLAN.md](PLAN.md); see [DEVELOPMENT.md](DEVELOPMENT.md) for how it is built and released.
+> **Status:** 0.1 — usable and still growing. The plan lives in [PLAN.md](https://github.com/ImanolGo/overflight/blob/main/PLAN.md); see [DEVELOPMENT.md](https://github.com/ImanolGo/overflight/blob/main/DEVELOPMENT.md) for how it is built and released.
 
 overflight shows the aircraft flying above you right now, drawn as if you were lying on your back in a field and looking straight up. The edge of the circle is the horizon, the middle is directly overhead, and every plane drifts across it in real time with its callsign trailing behind. During the day the sky is blue, at dusk it fades, and at night you get stars.
 
@@ -24,13 +24,20 @@ It's a screensaver, mostly. But it's also the quickest way to answer "what was t
 - Planes higher in the sky are closer to you. A plane near the edge is far away, low on the horizon, or both.
 - Like a star chart, east and west are swapped compared to a map. That's what the sky looks like when you face up with north at the top of your head. Press `m` if you'd rather have it the map way round.
 
+The horizon, rings and trails are drawn with Braille characters, which virtually
+every terminal font includes.
+
 ## Install
 
-You'll need a recent stable Rust toolchain.
+Prebuilt binaries for Linux, macOS and Windows — plus a `.deb` and an MSI — are
+on the [releases page](https://github.com/ImanolGo/overflight/releases).
+
+Or, with a recent stable Rust toolchain:
 
 ```sh
-cargo install --path .                                         # from a checkout
-cargo install --git https://github.com/ImanolGo/overflight      # straight from GitHub
+cargo install overflight                                    # from crates.io
+cargo install --git https://github.com/ImanolGo/overflight   # latest from git
+cargo install --path .                                      # from a checkout
 ```
 
 ## Usage
@@ -41,9 +48,9 @@ Tell it where you are:
 overflight --lat 52.52 --lon 13.40
 ```
 
-or put your location in `~/.config/overflight/config.toml` (start from the
-[`overflight.example.toml`](overflight.example.toml) in this repo) so you don't
-have to type it every time:
+or put your location in `~/.config/overflight/config.toml` (see the
+[`overflight.example.toml`](https://github.com/ImanolGo/overflight/blob/main/overflight.example.toml)
+for that path on macOS and Windows) so you don't have to type it every time:
 
 ```toml
 lat = 52.52
@@ -107,4 +114,4 @@ Issues and pull requests are welcome. Ideas I'd love help with: satellites (the 
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](https://github.com/ImanolGo/overflight/blob/main/LICENSE).
