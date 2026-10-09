@@ -47,3 +47,7 @@ min_elevation = 0
 # Extra ICAO type codes to treat as rare and highlight. The built-in list is
 # A124, A388, B748, C5M, B52H, A400, V22, C17, BLCF and A3ST.
 # rare_types = ["R44", "C130"]
+
+# Look up the selected aircraft's route from adsbdb (default true). Set to
+# false to send no callsigns; --no-routes does the same from the command line.
+# routes = true

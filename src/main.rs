@@ -128,6 +128,10 @@ struct Cli {
     #[arg(long)]
     no_mouse: bool,
 
+    /// Do not look up the selected aircraft's route (no adsbdb request).
+    #[arg(long)]
+    no_routes: bool,
+
     /// Ring the terminal bell when an unusual aircraft appears.
     #[arg(long)]
     bell: bool,
@@ -173,6 +177,7 @@ struct Settings {
     screensaver: bool,
     log: Option<PathBuf>,
     no_mouse: bool,
+    no_routes: bool,
     bell: bool,
 }
 
@@ -260,6 +265,7 @@ impl Settings {
             screensaver: cli.screensaver,
             log: cli.log.clone(),
             no_mouse: cli.no_mouse,
+            no_routes: cli.no_routes || file.and_then(|config| config.routes) == Some(false),
             bell: cli.bell,
         })
     }
@@ -437,8 +443,10 @@ fn run_live(settings: &Settings) -> Result<()> {
         app.set_logger(logbook::Logger::new(path));
     }
 
-    // Route lookup is a nicety; keep it off for the offline demo.
+    // Route lookup is a nicety; keep it off for the offline demo and when the
+    // user opted out with --no-routes or routes = false.
     if !settings.demo
+        && !settings.no_routes
         && let Ok(client) = route::http_client()
     {
         app.set_route_looker(route::Looker::spawn(Box::new(route::Adsbdb::new(client))));
@@ -739,6 +747,22 @@ mod tests {
             ..FileConfig::default()
         };
         assert!(Settings::resolve(&cli, Some(&file)).is_err());
+    }
+
+    #[test]
+    fn routes_can_be_disabled_by_flag_or_config() {
+        let cli = Cli::parse_from(["overflight"]);
+        assert!(!Settings::resolve(&cli, None).unwrap().no_routes);
+
+        let cli = Cli::parse_from(["overflight", "--no-routes"]);
+        assert!(Settings::resolve(&cli, None).unwrap().no_routes);
+
+        let file = FileConfig {
+            routes: Some(false),
+            ..FileConfig::default()
+        };
+        let cli = Cli::parse_from(["overflight"]);
+        assert!(Settings::resolve(&cli, Some(&file)).unwrap().no_routes);
     }
 
     #[test]

@@ -80,6 +80,7 @@ overflight --alt 1650          # how high you are, for low, close traffic
 overflight --interval 10       # seconds between updates
 overflight --log ~/flights.csv # log each aircraft when it leaves the sky
 overflight --no-mouse          # leave the mouse for text selection
+overflight --no-routes         # don't send callsigns to adsbdb for routes
 overflight --bell              # ring the bell for unusual aircraft
 overflight --source airplanes-live  # for airplanes.live feeders
 overflight --source local --url http://your-pi/data/aircraft.json
@@ -136,7 +137,7 @@ Coverage depends on volunteer receivers, so some areas, especially rural ones an
 
 ## Privacy
 
-Your coordinates are only ever sent to the data source you pick, as part of the request for nearby aircraft. They're not logged or sent anywhere else. When a network is available and you select an aircraft, its callsign (not your location) is sent to [adsbdb](https://www.adsbdb.com/) to look up its route; turn this off with `--demo` (or just don't select anything). If you share screenshots, remember that the planes around you give a fair idea of where you live.
+Your coordinates are only ever sent to the data source you pick, as part of the request for nearby aircraft. They're not logged or sent anywhere else. When a network is available and you select an aircraft, its callsign (not your location) is sent to [adsbdb](https://www.adsbdb.com/) to look up its route; turn this off with `--no-routes` (or `routes = false` in the config), or with `--demo`, or just don't select anything. If you share screenshots, remember that the planes around you give a fair idea of where you live.
 
 ## Stability
 

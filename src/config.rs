@@ -75,6 +75,8 @@ pub struct FileConfig {
     pub tle_group: Option<String>,
     /// Extra rare type codes to highlight.
     pub rare_types: Option<Vec<String>>,
+    /// Whether to look up the selected aircraft's route (default true).
+    pub routes: Option<bool>,
     /// OpenSky client id, if using `source = "opensky"`.
     pub opensky_client_id: Option<String>,
     /// OpenSky client secret, if using `source = "opensky"`.
@@ -94,6 +96,7 @@ const KNOWN_KEYS: &[&str] = &[
     "url",
     "tle_group",
     "rare_types",
+    "routes",
     "opensky_client_id",
     "opensky_client_secret",
 ];
