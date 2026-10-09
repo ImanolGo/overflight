@@ -81,6 +81,7 @@ overflight --interval 10       # seconds between updates
 overflight --log ~/flights.csv # log each aircraft when it leaves the sky
 overflight --no-mouse          # leave the mouse for text selection
 overflight --no-routes         # don't send callsigns to adsbdb for routes
+overflight --colors 256        # force 256 colours (or truecolor, none)
 overflight --bell              # ring the bell for unusual aircraft
 overflight --source airplanes-live  # for airplanes.live feeders
 overflight --source local --url http://your-pi/data/aircraft.json

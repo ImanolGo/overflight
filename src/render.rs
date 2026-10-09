@@ -9,6 +9,10 @@
 //! `Canvas` in Braille. Aircraft arrows, labels and compass letters are written
 //! straight into the buffer so they land on exact cells.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU8, Ordering};
+
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
@@ -125,8 +129,142 @@ impl Palette {
     }
 }
 
+/// How much colour the terminal can show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorMode {
+    /// 24-bit colour.
+    Truecolor,
+    /// The 256-colour xterm palette.
+    Ansi256,
+    /// No colour: leave every cell at the terminal default.
+    None,
+}
+
+impl ColorMode {
+    const fn code(self) -> u8 {
+        match self {
+            Self::Truecolor => 0,
+            Self::Ansi256 => 1,
+            Self::None => 2,
+        }
+    }
+
+    const fn from_code(code: u8) -> Self {
+        match code {
+            1 => Self::Ansi256,
+            2 => Self::None,
+            _ => Self::Truecolor,
+        }
+    }
+
+    /// Choose a mode from the environment: `NO_COLOR` turns colour off, and
+    /// `COLORTERM` decides between truecolor and the 256-colour palette.
+    #[must_use]
+    pub fn from_environment() -> Self {
+        if std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty()) {
+            return Self::None;
+        }
+        match std::env::var("COLORTERM") {
+            Ok(value)
+                if value.eq_ignore_ascii_case("truecolor")
+                    || value.eq_ignore_ascii_case("24bit") =>
+            {
+                Self::Truecolor
+            }
+            _ => Self::Ansi256,
+        }
+    }
+}
+
+/// The active colour mode, set once at startup. It defaults to truecolor, which
+/// keeps the render tests and their snapshots stable.
+static COLOR_MODE: AtomicU8 = AtomicU8::new(0);
+
+/// Set the colour mode, once, before drawing.
+pub fn set_color_mode(mode: ColorMode) {
+    COLOR_MODE.store(mode.code(), Ordering::Relaxed);
+}
+
+fn color_mode() -> ColorMode {
+    ColorMode::from_code(COLOR_MODE.load(Ordering::Relaxed))
+}
+
+/// A 24-bit colour, honoured according to the active [`ColorMode`].
 fn rgb(color: Rgb) -> Color {
-    Color::Rgb(color.0 as u8, color.1 as u8, color.2 as u8)
+    match color_mode() {
+        ColorMode::Truecolor => Color::Rgb(color.0 as u8, color.1 as u8, color.2 as u8),
+        ColorMode::Ansi256 => Color::Indexed(nearest_256(color)),
+        ColorMode::None => Color::Reset,
+    }
+}
+
+/// A named colour, or the terminal default when colour is off.
+fn named(color: Color) -> Color {
+    match color_mode() {
+        ColorMode::None => Color::Reset,
+        _ => color,
+    }
+}
+
+/// The six levels of each channel in the xterm 256-colour cube.
+const CUBE_LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+
+/// The nearest xterm 256-colour index to an RGB colour.
+///
+/// Only the fixed part of the palette (16..=255: the 6x6x6 cube and the
+/// 24-step grey ramp) is considered, not the first 16 colours, whose RGB values
+/// depend on the terminal theme. Including the grey ramp is what keeps very
+/// dark colours — the night sky — from collapsing to black.
+fn nearest_256(color: Rgb) -> u8 {
+    let r = color.0.round().clamp(0.0, 255.0) as u8;
+    let g = color.1.round().clamp(0.0, 255.0) as u8;
+    let b = color.2.round().clamp(0.0, 255.0) as u8;
+    let key = (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b);
+
+    thread_local! {
+        static CACHE: RefCell<HashMap<u32, u8>> = RefCell::new(HashMap::new());
+    }
+    CACHE.with(|cache| {
+        if let Some(&index) = cache.borrow().get(&key) {
+            return index;
+        }
+        let index = quantize_256(r, g, b);
+        cache.borrow_mut().insert(key, index);
+        index
+    })
+}
+
+/// The Euclidean-nearest of the fixed 240 xterm colours.
+fn quantize_256(r: u8, g: u8, b: u8) -> u8 {
+    let distance = |r2: u8, g2: u8, b2: u8| {
+        let dr = i32::from(r) - i32::from(r2);
+        let dg = i32::from(g) - i32::from(g2);
+        let db = i32::from(b) - i32::from(b2);
+        (dr * dr + dg * dg + db * db) as u32
+    };
+
+    let mut best = 16;
+    let mut best_distance = u32::MAX;
+    for (ri, &rv) in CUBE_LEVELS.iter().enumerate() {
+        for (gi, &gv) in CUBE_LEVELS.iter().enumerate() {
+            for (bi, &bv) in CUBE_LEVELS.iter().enumerate() {
+                let d = distance(rv, gv, bv);
+                if d < best_distance {
+                    best_distance = d;
+                    best = 16 + 36 * ri as u8 + 6 * gi as u8 + bi as u8;
+                }
+            }
+        }
+    }
+    for i in 0..24u8 {
+        let value = 8 + 10 * i;
+        let d = distance(value, value, value);
+        if d < best_distance {
+            best_distance = d;
+            best = 232 + i;
+        }
+    }
+    best
 }
 
 /// The coordinate system used to paint the sky into a terminal area.
@@ -763,7 +901,7 @@ fn trail_color(palette: &Palette, age_s: f64, alpha: f64) -> Color {
 
 fn dim((r, g, b): Rgb, alpha: f64) -> Color {
     let alpha = alpha.clamp(0.0, 1.0);
-    Color::Rgb((r * alpha) as u8, (g * alpha) as u8, (b * alpha) as u8)
+    rgb((r * alpha, g * alpha, b * alpha))
 }
 
 /// Label plus a climbing/descending marker.
@@ -842,7 +980,7 @@ fn place_labels(
 
 /// The bottom status line.
 fn status_line(app: &App) -> Line<'static> {
-    let base = Style::default().fg(Color::DarkGray);
+    let base = Style::default().fg(named(Color::DarkGray));
     let mut spans = vec![Span::styled(
         format!("{} · {} aircraft", app.source, app.live_count()),
         base,
@@ -886,7 +1024,7 @@ fn status_line(app: &App) -> Line<'static> {
     if let Some(error) = &app.last_error {
         spans.push(Span::styled(
             format!(" · {error}"),
-            Style::default().fg(Color::Rgb(90, 70, 70)),
+            Style::default().fg(rgb((90.0, 70.0, 70.0))),
         ));
     }
     Line::from(spans)
@@ -1081,7 +1219,7 @@ fn render_too_small(frame: &mut Frame, area: Rect) {
         area.width, area.height
     );
     frame.render_widget(
-        Paragraph::new(message).style(Style::default().fg(Color::Gray)),
+        Paragraph::new(message).style(Style::default().fg(named(Color::Gray))),
         area,
     );
 }
@@ -1366,6 +1504,36 @@ mod tests {
         assert!(!Palette::for_sun_elevation(30.0).shows_stars());
         assert!(!Palette::for_sun_elevation(-5.0).shows_stars());
         assert!(Palette::for_sun_elevation(-30.0).shows_stars());
+    }
+
+    #[test]
+    fn the_256_palette_does_not_collapse_dark_blues_to_black() {
+        // The night sky background. A careless cube-only mapping picks black.
+        let index = quantize_256(7, 10, 24);
+        assert_ne!(index, 0, "should not use a theme colour");
+        assert_ne!(index, 16, "collapsed to cube black");
+        assert!(index >= 16);
+    }
+
+    #[test]
+    fn exact_cube_colours_map_to_their_cube_index() {
+        assert_eq!(quantize_256(255, 0, 0), 196); // 16 + 36*5
+        assert_eq!(quantize_256(0, 0, 0), 16);
+        assert_eq!(quantize_256(0, 0, 255), 21); // 16 + 5
+    }
+
+    #[test]
+    fn greys_use_the_grey_ramp() {
+        // Exact grey 128 is in the ramp, closer than the cube's 135.
+        assert_eq!(quantize_256(128, 128, 128), 244); // 232 + 12
+    }
+
+    #[test]
+    fn the_nearest_256_colour_is_cached_and_stable() {
+        assert_eq!(
+            nearest_256((7.0, 10.0, 24.0)),
+            nearest_256((7.0, 10.0, 24.0))
+        );
     }
 
     fn demo_app(utc: f64) -> App {

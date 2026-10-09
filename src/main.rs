@@ -73,6 +73,28 @@ enum SourceArg {
     Opensky,
 }
 
+/// How much colour to use, matching the `--colors` flag.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ColorsArg {
+    /// 24-bit if `COLORTERM` says so, else 256 colours; no colour under `NO_COLOR`.
+    Auto,
+    Truecolor,
+    #[value(name = "256")]
+    Ansi256,
+    None,
+}
+
+impl ColorsArg {
+    fn resolve(self) -> render::ColorMode {
+        match self {
+            Self::Auto => render::ColorMode::from_environment(),
+            Self::Truecolor => render::ColorMode::Truecolor,
+            Self::Ansi256 => render::ColorMode::Ansi256,
+            Self::None => render::ColorMode::None,
+        }
+    }
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "overflight",
@@ -138,6 +160,10 @@ struct Cli {
     #[arg(long)]
     bell: bool,
 
+    /// Colour support: auto, truecolor, 256 or none [default: auto].
+    #[arg(long, value_enum, value_name = "MODE")]
+    colors: Option<ColorsArg>,
+
     /// Fetch once, print a table of aircraft, then exit.
     #[arg(long, hide = true)]
     dump: bool,
@@ -181,6 +207,7 @@ struct Settings {
     no_mouse: bool,
     no_routes: bool,
     bell: bool,
+    color_mode: render::ColorMode,
 }
 
 impl Settings {
@@ -269,6 +296,7 @@ impl Settings {
             no_mouse: cli.no_mouse,
             no_routes: cli.no_routes || file.and_then(|config| config.routes) == Some(false),
             bell: cli.bell,
+            color_mode: cli.colors.unwrap_or(ColorsArg::Auto).resolve(),
         })
     }
 }
@@ -495,6 +523,7 @@ fn run_live(settings: &Settings) -> Result<()> {
         .map(|seconds| seconds as f64);
 
     let mouse = !settings.no_mouse;
+    render::set_color_mode(settings.color_mode);
     let shutdown = install_signal_handlers();
     let mut terminal = ratatui::init();
     if mouse {
