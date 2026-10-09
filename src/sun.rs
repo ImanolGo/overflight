@@ -34,6 +34,15 @@ impl Utc {
         }
     }
 
+    /// Format as an RFC 3339 timestamp in UTC.
+    #[must_use]
+    pub fn to_rfc3339(self) -> String {
+        format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+            self.year, self.month, self.day, self.hour, self.minute, self.second
+        )
+    }
+
     /// Convert a Unix timestamp (seconds since 1970-01-01 00:00 UTC).
     #[must_use]
     pub const fn from_unix_seconds(seconds: i64) -> Self {

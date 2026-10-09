@@ -17,7 +17,7 @@ use overflight::providers::fixture::FixtureProvider;
 use overflight::providers::local::Local;
 use overflight::providers::opensky::{Credentials, OpenSky};
 use overflight::providers::{self, Aircraft, Provider, Query, Recorder};
-use overflight::{render, satellite, sun};
+use overflight::{logbook, render, satellite, sun};
 
 /// Frame time while aircraft are moving: about 30 fps.
 const MOVING_FRAME: Duration = Duration::from_millis(33);
@@ -107,6 +107,10 @@ struct Cli {
     #[arg(long)]
     screensaver: bool,
 
+    /// Append a CSV line per aircraft when it leaves the sky.
+    #[arg(long, value_name = "PATH")]
+    log: Option<PathBuf>,
+
     /// Fetch once, print a table of aircraft, then exit.
     #[arg(long, hide = true)]
     dump: bool,
@@ -146,6 +150,7 @@ struct Settings {
     tle_group: String,
     rare_types: Vec<String>,
     screensaver: bool,
+    log: Option<PathBuf>,
 }
 
 impl Settings {
@@ -230,6 +235,7 @@ impl Settings {
                 .and_then(|config| config.rare_types.clone())
                 .unwrap_or_default(),
             screensaver: cli.screensaver,
+            log: cli.log.clone(),
         })
     }
 }
@@ -396,6 +402,9 @@ fn run_live(settings: &Settings) -> Result<()> {
     app.units = settings.units;
     app.min_elevation_deg = settings.min_elevation;
     app.rare_types = settings.rare_types.clone();
+    if let Some(path) = &settings.log {
+        app.set_logger(logbook::Logger::new(path));
+    }
     if settings.demo {
         // Embedded TLEs are only for the offline demo; live mode uses the
         // cache, refreshed from Celestrak.

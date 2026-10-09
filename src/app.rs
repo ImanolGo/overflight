@@ -3,6 +3,7 @@
 
 use crate::config::Units;
 use crate::geo::{self, GeoPoint};
+use crate::logbook;
 use crate::providers::{Aircraft, Query};
 use crate::satellite::{self, Satellite, SatellitePosition};
 use crate::sky::{self, BodyPosition};
@@ -63,6 +64,8 @@ pub struct App {
     pub notification: Option<(String, f64)>,
     /// The next aircraft expected to pass high overhead.
     pub pass_prediction: Option<PassPrediction>,
+    /// Append-only logbook, if `--log` was given.
+    logger: Option<logbook::Logger>,
     /// Preferred display units.
     pub units: Units,
     /// Extra rare type codes from the config, on top of the built-in ones.
@@ -100,6 +103,7 @@ impl App {
             selected_satellite: None,
             notification: None,
             pass_prediction: None,
+            logger: None,
             units: Units::Metric,
             rare_types: Vec::new(),
             min_elevation_deg: 0.0,
@@ -160,6 +164,23 @@ impl App {
         self.last_error = Some(message.into());
     }
 
+    /// Send departing aircraft to a CSV logbook.
+    pub fn set_logger(&mut self, logger: logbook::Logger) {
+        self.logger = Some(logger);
+    }
+
+    fn log_departure(&mut self, track: &Track, utc_s: f64) {
+        if let Some(logger) = &mut self.logger {
+            logger.append(&logbook::Record {
+                time: sun::Utc::from_unix_seconds(utc_s as i64).to_rfc3339(),
+                callsign: track.callsign.clone(),
+                registration: track.registration.clone(),
+                type_code: track.type_code.clone(),
+                max_elevation_deg: track.max_elevation_deg,
+            });
+        }
+    }
+
     /// Replace the satellite element sets, e.g. after a TLE refresh.
     pub fn set_satellites(&mut self, satellites: Vec<Satellite>, fetched_at: f64) {
         self.satellites = satellites;
@@ -200,8 +221,14 @@ impl App {
             track.update(now_s);
         }
         let min_elevation = self.min_elevation_deg;
-        self.tracks
-            .retain(|track| !track.stale(now_s) && track.az_el().1 >= min_elevation);
+        let (kept, departed): (Vec<Track>, Vec<Track>) = self
+            .tracks
+            .drain(..)
+            .partition(|track| !track.stale(now_s) && track.az_el().1 >= min_elevation);
+        self.tracks = kept;
+        for track in &departed {
+            self.log_departure(track, utc_s);
+        }
 
         self.pass_prediction = self
             .tracks
@@ -377,6 +404,26 @@ mod tests {
         no_altitude.alt_m = None;
         app.apply(&[on_ground, no_altitude], 0.0);
         assert_eq!(app.live_count(), 0);
+    }
+
+    #[test]
+    fn departing_aircraft_are_logged() {
+        use crate::logbook::Logger;
+
+        let path =
+            std::env::temp_dir().join(format!("overflight-applog-{}.csv", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+
+        let mut app = App::new(query(), "test");
+        app.set_logger(Logger::new(&path));
+        app.apply(&[observation("DLH4AB", 52.6, 13.5)], 0.0);
+        app.update(0.0, 0.0);
+        // Past the drop age, so it leaves the sky and is logged.
+        app.update(70.0, 0.0);
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("DLH4AB"), "{text}");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

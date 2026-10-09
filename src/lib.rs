@@ -8,6 +8,7 @@ pub mod app;
 pub mod config;
 pub mod fetcher;
 pub mod geo;
+pub mod logbook;
 pub mod providers;
 pub mod render;
 pub mod satellite;

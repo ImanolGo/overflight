@@ -61,6 +61,8 @@ pub struct Track {
     pub track_deg: Option<f64>,
     pub ground_speed_ms: Option<f64>,
     pub vertical_rate_ms: Option<f64>,
+    /// Highest elevation this aircraft has reached, degrees.
+    pub max_elevation_deg: f64,
 
     anchor: [f64; 3],
     anchor_time_s: f64,
@@ -91,6 +93,7 @@ impl Track {
             track_deg: observation.track_deg,
             ground_speed_ms: observation.ground_speed_ms,
             vertical_rate_ms: observation.vertical_rate_ms,
+            max_elevation_deg: 0.0,
             anchor,
             anchor_time_s: now_s,
             velocity,
@@ -145,6 +148,9 @@ impl Track {
         } else {
             lerp(self.ease_from, target, smoothstep(progress))
         };
+
+        let (_, elevation, _) = self.az_el();
+        self.max_elevation_deg = self.max_elevation_deg.max(elevation);
 
         while self
             .trail
