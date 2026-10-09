@@ -1,6 +1,6 @@
 pkgbase = overflight
 	pkgdesc = See the aircraft flying above you, as a live sky view in your terminal
-	pkgver = 0.1.0
+	pkgver = 0.1.1
 	pkgrel = 1
 	url = https://github.com/ImanolGo/overflight
 	arch = x86_64
@@ -8,7 +8,7 @@ pkgbase = overflight
 	license = MIT
 	makedepends = rust
 	depends = gcc-libs
-	source = overflight-0.1.0.tar.gz::https://github.com/ImanolGo/overflight/archive/refs/tags/v0.1.0.tar.gz
-	sha256sums = 5a7ecd244456625a994c0a9e77c3415833541585f172db0800b1055a0ebecdd1
+	source = overflight-0.1.1.tar.gz::https://github.com/ImanolGo/overflight/archive/refs/tags/v0.1.1.tar.gz
+	sha256sums = 01d8267f35d0eb6129a229b7864ea830b2dffd51517ced106f71fd551bf0b47a
 
 pkgname = overflight

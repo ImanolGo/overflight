@@ -1,6 +1,6 @@
 # Maintainer: ImanolGo <ImanolGo@users.noreply.github.com>
 pkgname=overflight
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="See the aircraft flying above you, as a live sky view in your terminal"
 arch=('x86_64' 'aarch64')
@@ -9,7 +9,7 @@ license=('MIT')
 depends=('gcc-libs')
 makedepends=('rust')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('5a7ecd244456625a994c0a9e77c3415833541585f172db0800b1055a0ebecdd1')
+sha256sums=('01d8267f35d0eb6129a229b7864ea830b2dffd51517ced106f71fd551bf0b47a')
 
 prepare() {
   cd "$pkgname-$pkgver"
