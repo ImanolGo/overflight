@@ -55,6 +55,24 @@ JSON. `unwrap`/`expect` are confined to tests and `main` setup.
   than `0.0` depending on the sign of a floating-point rounding error, so
   azimuth comparisons are wrap-aware.
 
+## After 0.1
+
+The ideas PLAN.md listed for after 0.1 were built, one commit each:
+
+- **Satellites and the ISS.** `satellite.rs` parses TLEs and propagates them
+  with SGP4 (the `sgp4` crate), rotating TEME → ECEF → ENU. TLEs are refreshed
+  from Celestrak in the background, and a recorded set is embedded for offline
+  `--demo`.
+- **Moon and bright planets.** `sky.rs` computes low-precision geocentric
+  positions (Schlyter's method) for the Moon and the planets, cross-checked
+  against `sun.rs` and the 2024-04-08 solar eclipse.
+- **Emitter-category glyphs.** Helicopters, gliders and balloons are drawn with
+  their own symbol, from the ADS-B emitter category.
+- **Unusual-aircraft notifications.** Military aircraft, emergency squawks and
+  a few rare types are highlighted and raise a transient banner.
+- **Horizon mode.** `h` switches to a side-on view looking north, with a
+  skyline and planes rising over it.
+
 ## Releasing
 
 A release is just a version tag:

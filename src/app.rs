@@ -51,6 +51,8 @@ pub struct App {
     pub source: String,
     /// Sky orientation (east on the left) or map orientation (east on the right).
     pub sky_orientation: bool,
+    /// Draw the side-on horizon view instead of the overhead circle.
+    pub horizon: bool,
     pub show_callsigns: bool,
     pub show_trails: bool,
     pub tracks: Vec<Track>,
@@ -90,6 +92,7 @@ impl App {
             query,
             source: source.into(),
             sky_orientation: true,
+            horizon: false,
             show_callsigns: true,
             show_trails: true,
             tracks: Vec::new(),

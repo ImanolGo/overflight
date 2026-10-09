@@ -443,6 +443,10 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             app.sky_orientation = !app.sky_orientation;
             false
         }
+        KeyCode::Char('h') => {
+            app.horizon = !app.horizon;
+            false
+        }
         KeyCode::Char('u') => {
             app.units = app.units.toggled();
             false

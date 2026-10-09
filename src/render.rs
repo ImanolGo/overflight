@@ -10,6 +10,7 @@
 //! straight into the buffer so they land on exact cells.
 
 use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
@@ -266,6 +267,11 @@ pub fn render(frame: &mut Frame, app: &App) {
     let area = frame.area();
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         render_too_small(frame, area);
+        return;
+    }
+
+    if app.horizon {
+        render_horizon(frame, area, app);
         return;
     }
 
@@ -573,9 +579,13 @@ pub fn screen_arrow(track_deg: Option<f64>, sky_orientation: bool) -> char {
     let track = track_deg.to_radians();
     let east = track.sin() * if sky_orientation { -1.0 } else { 1.0 };
     let north = track.cos();
-    let angle = north.atan2(east).to_degrees().rem_euclid(360.0);
-    let index = ((angle / 45.0).round() as usize) % ARROWS.len();
-    ARROWS[index]
+    arrow_from_angle(north.atan2(east).to_degrees())
+}
+
+/// The arrow nearest to a screen angle, measured counter-clockwise from east.
+fn arrow_from_angle(angle_deg: f64) -> char {
+    let angle = angle_deg.rem_euclid(360.0);
+    ARROWS[((angle / 45.0).round() as usize) % ARROWS.len()]
 }
 
 /// Colour for an aircraft by altitude band, dimmed by `alpha`.
@@ -631,6 +641,145 @@ fn status_line(app: &App) -> Line<'static> {
         ));
     }
     Line::from(spans)
+}
+
+/// The side-on horizon view: a skyline, looking north, with planes rising over
+/// it and their height above the horizon shown directly.
+fn render_horizon(frame: &mut Frame, area: Rect, app: &App) {
+    let [sky_area, status_area] =
+        Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(area);
+    let palette = Palette::for_sun_elevation(app.sun_elevation_deg);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(rgb(palette.background))),
+        sky_area,
+    );
+
+    const VIEW_AZIMUTH: f64 = 0.0; // look north
+
+    {
+        let buffer = frame.buffer_mut();
+        let (origin_x, origin_y) = (sky_area.left(), sky_area.top());
+        draw_skyline(buffer, sky_area, &palette);
+
+        for track in &app.tracks {
+            let (azimuth, elevation, _) = track.az_el();
+            let Some((col, row)) = horizon_cell(sky_area, azimuth, elevation, VIEW_AZIMUTH) else {
+                continue;
+            };
+            let alpha = track.alpha(app.now_s);
+            let colour = if track.unusual.is_some() {
+                alert_color(alpha)
+            } else {
+                altitude_color(track.alt_m, alpha)
+            };
+            let mut style = Style::default().fg(colour);
+            if app.selected.as_deref() == Some(track.id.as_str()) {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+            buffer.set_string(
+                origin_x + col,
+                origin_y + row,
+                horizon_arrow(track).to_string(),
+                style,
+            );
+            if app.show_callsigns {
+                buffer.set_string(
+                    origin_x + col + 2,
+                    origin_y + row,
+                    aircraft_label(track),
+                    style,
+                );
+            }
+        }
+
+        buffer.set_string(
+            origin_x,
+            origin_y,
+            format!("looking {}", compass_word(VIEW_AZIMUTH)),
+            Style::default().fg(rgb(palette.compass)),
+        );
+    }
+
+    if app.tracks.is_empty() {
+        render_no_data(frame, sky_area, app, &palette);
+    }
+    if let Some(track) = app.selected_track() {
+        render_detail(frame, sky_area, track, app, &palette);
+    }
+    if let Some(message) = app.active_notification() {
+        render_notification(frame, sky_area, message, &palette);
+    }
+    frame.render_widget(Paragraph::new(status_line(app)), status_area);
+}
+
+/// A deterministic little skyline along the bottom of a horizon view.
+fn draw_skyline(buffer: &mut Buffer, area: Rect, palette: &Palette) {
+    let style = Style::default()
+        .fg(rgb(palette.ring))
+        .bg(rgb(palette.background));
+    let base = area.bottom().saturating_sub(1);
+    for x in 0..area.width {
+        buffer.set_string(area.left() + x, base, "▁", style);
+    }
+
+    const HEIGHTS: [u16; 16] = [1, 3, 2, 5, 1, 2, 4, 1, 3, 2, 6, 1, 2, 3, 1, 4];
+    let mut column = 1u16;
+    let mut index = 0usize;
+    while column + 1 < area.width {
+        let height = HEIGHTS[index % HEIGHTS.len()];
+        for level in 0..height {
+            if base > area.top() + level {
+                buffer.set_string(area.left() + column, base - level, "█", style);
+            }
+        }
+        column += 2;
+        index += 1;
+    }
+}
+
+/// Half the horizontal field of view in the horizon mode, in degrees.
+const HORIZON_FOV_HALF: f64 = 65.0;
+
+/// Screen cell for a direction in the horizon view, or `None` if it is behind
+/// us or below the horizon.
+fn horizon_cell(
+    area: Rect,
+    azimuth_deg: f64,
+    elevation_deg: f64,
+    view_azimuth: f64,
+) -> Option<(u16, u16)> {
+    if !(0.0..=90.0).contains(&elevation_deg) {
+        return None;
+    }
+    let mut delta = (azimuth_deg - view_azimuth).rem_euclid(360.0);
+    if delta > 180.0 {
+        delta -= 360.0;
+    }
+    if delta.abs() > HORIZON_FOV_HALF {
+        return None;
+    }
+
+    let width = f64::from(area.width);
+    let x = width / 2.0 + delta / HORIZON_FOV_HALF * (width / 2.0 - 2.0);
+    let base = f64::from(area.height.saturating_sub(3));
+    let y = base - elevation_deg / 90.0 * (base - 1.0);
+
+    Some((
+        clamp_cell(x, f64::from(area.width.saturating_sub(1))),
+        clamp_cell(y, f64::from(area.height.saturating_sub(1))),
+    ))
+}
+
+/// Side-on arrow: east is to the right, and the vertical rate tilts it up or
+/// down.
+fn horizon_arrow(track: &Track) -> char {
+    let Some(track_deg) = track.track_deg else {
+        return '·';
+    };
+    let east = track_deg.to_radians().sin();
+    let speed = track.ground_speed_ms.unwrap_or(0.0).max(1.0);
+    let climb = track.vertical_rate_ms.unwrap_or(0.0) / speed;
+    arrow_from_angle(climb.atan2(east).to_degrees())
 }
 
 fn render_too_small(frame: &mut Frame, area: Rect) {
@@ -846,6 +995,55 @@ mod tests {
         app.update(5.0, utc);
         app.update(5.6, utc);
         app
+    }
+
+    #[test]
+    fn horizon_view_projects_around_north() {
+        let area = Rect::new(0, 0, 100, 30);
+        let north = horizon_cell(area, 0.0, 45.0, 0.0).unwrap();
+        assert!((f64::from(north.0) - 50.0).abs() < 1.0, "centred");
+        assert!(horizon_cell(area, 90.0, 45.0, 0.0).is_none(), "behind us");
+        assert!(
+            horizon_cell(area, 0.0, -5.0, 0.0).is_none(),
+            "below horizon"
+        );
+        let low = horizon_cell(area, 0.0, 0.0, 0.0).unwrap();
+        let high = horizon_cell(area, 0.0, 80.0, 0.0).unwrap();
+        assert!(high.1 < low.1, "higher elevation is a smaller row");
+    }
+
+    #[test]
+    fn horizon_arrows_rise_when_climbing() {
+        use crate::geo::GeoPoint;
+        use crate::providers::Aircraft;
+        use crate::track::Track;
+
+        let make = |track_deg: f64, climb: f64| {
+            let aircraft = Aircraft {
+                id: "abc123".to_string(),
+                lat: 52.53,
+                lon: 13.40,
+                track_deg: Some(track_deg),
+                ground_speed_ms: Some(100.0),
+                vertical_rate_ms: Some(climb),
+                ..Aircraft::default()
+            };
+            Track::new(&aircraft, GeoPoint::new(52.52, 13.40, 0.0), 0.0)
+        };
+        // Eastbound, level: points right.
+        assert_eq!(horizon_arrow(&make(90.0, 0.0)), '→');
+        // Climbing at the same rate as it travels: points up-right.
+        assert_eq!(horizon_arrow(&make(90.0, 100.0)), '↗');
+    }
+
+    #[test]
+    fn snapshot_demo_horizon_is_stable() {
+        let utc = crate::sun::parse_rfc3339_seconds("2024-06-21T00:00:00Z").unwrap() as f64;
+        let mut app = demo_app(utc);
+        app.horizon = true;
+        let mut terminal = Terminal::new(TestBackend::new(100, 32)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        insta::assert_snapshot!("demo_horizon", buffer_text(terminal.backend().buffer()));
     }
 
     #[test]

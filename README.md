@@ -23,6 +23,10 @@ It's a screensaver, mostly. But it's also the quickest way to answer "what was t
 - Colour is by altitude: warm for low aircraft, cool for cruise, neutral in between. A `+` or `-` after the callsign means climbing or descending.
 - Planes higher in the sky are closer to you. A plane near the edge is far away, low on the horizon, or both.
 - Like a star chart, east and west are swapped compared to a map. That's what the sky looks like when you face up with north at the top of your head. Press `m` if you'd rather have it the map way round.
+- Helicopters, gliders and balloons are drawn with their own symbol rather than a heading arrow. Military aircraft, emergency squawks and a few rare types are highlighted, with a banner when one appears.
+- At night the Moon and the bright planets are drawn with their astronomical symbols, and satellites — including the ISS — drift across as slow-moving dots.
+
+Press `h` for a side-on view instead: a skyline looking north, with planes rising over it.
 
 The horizon, rings and trails are drawn with Braille characters, which virtually
 every terminal font includes.
@@ -83,6 +87,7 @@ Keys while it's running:
 | `l` | Show or hide callsigns |
 | `t` | Show or hide trails |
 | `m` | Switch between sky view and map orientation |
+| `h` | Switch to the side-on horizon view |
 | `u` | Switch between metric and imperial |
 
 The detail box for the selected aircraft shows its callsign, registration,
@@ -100,7 +105,9 @@ If you have an [OpenSky Network](https://opensky-network.org) account you can us
 
 If you run your own ADS-B receiver (a Raspberry Pi with a cheap SDR dongle and readsb or dump1090), point overflight at it with `--source local --url http://your-pi/data/aircraft.json`. That's the nicest setup: no rate limits, no internet needed, and you see exactly what your antenna sees.
 
-`overflight --demo` replays a minute of recorded traffic (captured around Heathrow) from the bundled fixture, so you can try it with no receiver and no network at all.
+Satellites come from Two-Line Elements: overflight fetches the current set from [Celestrak](https://celestrak.org) (the `stations` group, which includes the ISS) and propagates them with SGP4. The Moon and the bright planets are computed locally, with no network needed.
+
+`overflight --demo` replays a minute of recorded traffic (captured around Heathrow) from the bundled fixture, so you can try it with no receiver and no network at all. It also uses a recorded set of TLEs.
 
 Coverage depends on volunteer receivers, so some areas, especially rural ones and over the sea, will be quieter than reality.
 
