@@ -3,6 +3,8 @@
 use std::cmp::Ordering;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
@@ -423,6 +425,20 @@ fn print_table(source: &str, query: &Query, aircraft: &[Aircraft]) {
     }
 }
 
+/// Ask the event loop to quit on SIGHUP, SIGTERM and SIGINT, so closing the
+/// terminal window still runs the normal shutdown (and flushes the logbook).
+fn install_signal_handlers() -> Arc<AtomicBool> {
+    let flag = Arc::new(AtomicBool::new(false));
+    #[cfg(unix)]
+    {
+        use signal_hook::consts::{SIGHUP, SIGTERM};
+        let _ = signal_hook::flag::register(SIGHUP, Arc::clone(&flag));
+        let _ = signal_hook::flag::register(SIGTERM, Arc::clone(&flag));
+    }
+    let _ = signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&flag));
+    flag
+}
+
 /// Run the live sky view.
 fn run_live(settings: &Settings) -> Result<()> {
     let (provider, query) = build_provider(settings)?;
@@ -479,6 +495,7 @@ fn run_live(settings: &Settings) -> Result<()> {
         .map(|seconds| seconds as f64);
 
     let mouse = !settings.no_mouse;
+    let shutdown = install_signal_handlers();
     let mut terminal = ratatui::init();
     if mouse {
         let _ = execute!(std::io::stdout(), event::EnableMouseCapture);
@@ -490,6 +507,7 @@ fn run_live(settings: &Settings) -> Result<()> {
         tle_rx.as_ref(),
         fixed_time,
         settings.screensaver,
+        &shutdown,
     );
     if mouse {
         let _ = execute!(std::io::stdout(), event::DisableMouseCapture);
@@ -548,11 +566,15 @@ fn event_loop(
     tle_rx: Option<&std::sync::mpsc::Receiver<(Vec<satellite::Satellite>, f64)>>,
     fixed_time: Option<f64>,
     screensaver: bool,
+    shutdown: &AtomicBool,
 ) -> Result<()> {
     let start = Instant::now();
     let mut deadline = Instant::now();
 
     loop {
+        if shutdown.load(AtomicOrdering::Relaxed) {
+            break;
+        }
         let now_s = start.elapsed().as_secs_f64();
         let utc_s = fixed_time.unwrap_or_else(now_unix_seconds);
 

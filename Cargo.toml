@@ -30,6 +30,7 @@ clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 directories = "6"
 sgp4 = "2.4"
+signal-hook = "0.3"
 
 [dev-dependencies]
 insta = "1"

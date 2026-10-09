@@ -1420,6 +1420,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sgp4",
+ "signal-hook",
  "toml",
 ]
 
