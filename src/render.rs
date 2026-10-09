@@ -99,6 +99,9 @@ const NIGHT_SUN_ELEVATION: f64 = -12.0;
 /// Colour for the Moon and bright planets in the night sky.
 const BODY_COLOR: Rgb = (245.0, 235.0, 190.0);
 
+/// Colour for satellites.
+const SATELLITE_COLOR: Rgb = (190.0, 215.0, 255.0);
+
 impl Palette {
     /// Pick the palette for a sun elevation in degrees.
     #[must_use]
@@ -370,8 +373,8 @@ pub fn render(frame: &mut Frame, app: &App) {
         }
     }
 
-    // The Moon and bright planets, drawn on top so a plane label cannot hide
-    // them.
+    // The Moon, bright planets and satellites, drawn on top so a plane label
+    // cannot hide them.
     if palette.kind != SkyKind::Day {
         for body in &app.bodies {
             if body.elevation_deg < 0.0 {
@@ -384,6 +387,24 @@ pub fn render(frame: &mut Frame, app: &App) {
                 origin_y + row,
                 body.body.glyph().to_string(),
                 Style::default().fg(rgb(BODY_COLOR)),
+            );
+        }
+
+        for satellite in &app.satellite_positions {
+            if satellite.elevation_deg < 0.0 {
+                continue;
+            }
+            let (x, y) = geo::project(
+                satellite.azimuth_deg,
+                satellite.elevation_deg,
+                app.sky_orientation,
+            );
+            let (col, row) = geometry.direction_cell(x, y);
+            buffer.set_string(
+                origin_x + col,
+                origin_y + row,
+                "✦",
+                Style::default().fg(rgb(SATELLITE_COLOR)),
             );
         }
     }
@@ -814,6 +835,7 @@ mod tests {
         let mut provider = FixtureProvider::embedded().unwrap();
         let query = provider.query();
         let mut app = App::new(query, "demo");
+        app.set_satellites(crate::satellite::embedded().unwrap_or_default());
         // Two polls five seconds apart, so dead reckoning, easing and the trail
         // are all exercised at a fixed time.
         let first = provider.fetch(&query).unwrap();

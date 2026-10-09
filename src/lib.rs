@@ -10,6 +10,7 @@ pub mod fetcher;
 pub mod geo;
 pub mod providers;
 pub mod render;
+pub mod satellite;
 pub mod sky;
 pub mod sun;
 pub mod track;

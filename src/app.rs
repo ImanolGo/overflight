@@ -7,6 +7,7 @@ use rand::{Rng, SeedableRng};
 use crate::config::Units;
 use crate::geo::{self, GeoPoint};
 use crate::providers::{Aircraft, Query};
+use crate::satellite::{self, Satellite, SatellitePosition};
 use crate::sky::{self, BodyPosition};
 use crate::sun::{self, Utc};
 use crate::track::Track;
@@ -65,6 +66,10 @@ pub struct App {
     pub sun_elevation_deg: f64,
     /// Moon and bright planet positions.
     pub bodies: Vec<BodyPosition>,
+    /// Satellite element sets, from TLEs.
+    pub satellites: Vec<Satellite>,
+    /// Satellite positions for the current time.
+    pub satellite_positions: Vec<SatellitePosition>,
     /// Fixed star field for the night sky.
     pub stars: Vec<Star>,
     /// Id of the selected aircraft, if any.
@@ -94,6 +99,8 @@ impl App {
             utc_s: 0.0,
             sun_elevation_deg: 90.0,
             bodies: Vec::new(),
+            satellites: Vec::new(),
+            satellite_positions: Vec::new(),
             stars: generate_stars(),
             selected: None,
             notification: None,
@@ -142,6 +149,11 @@ impl App {
         self.last_error = Some(message.into());
     }
 
+    /// Replace the satellite element sets, e.g. after a TLE refresh.
+    pub fn set_satellites(&mut self, satellites: Vec<Satellite>) {
+        self.satellites = satellites;
+    }
+
     /// Advance every track, recompute the sun, and drop tracks that have gone
     /// quiet or fallen below the minimum elevation. `now_s` is seconds since
     /// start; `utc_s` is the wall-clock time.
@@ -151,6 +163,16 @@ impl App {
         let time = Utc::from_unix_seconds(utc_s as i64);
         self.sun_elevation_deg = sun::solar_elevation_deg(self.query.lat, self.query.lon, time);
         self.bodies = sky::positions(self.query.lat, self.query.lon, time);
+
+        let observer = self.query.observer();
+        self.satellite_positions = match satellite::datetime(utc_s as i64) {
+            Some(time) => self
+                .satellites
+                .iter()
+                .filter_map(|satellite| satellite.position(time, observer))
+                .collect(),
+            None => Vec::new(),
+        };
         for track in &mut self.tracks {
             track.update(now_s);
         }

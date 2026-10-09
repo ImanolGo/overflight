@@ -69,6 +69,8 @@ pub struct FileConfig {
     pub interval: Option<u64>,
     pub source: Option<String>,
     pub url: Option<String>,
+    /// Celestrak group for satellites.
+    pub tle_group: Option<String>,
     /// OpenSky client id, if using `source = "opensky"`.
     pub opensky_client_id: Option<String>,
     /// OpenSky client secret, if using `source = "opensky"`.

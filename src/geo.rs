@@ -69,9 +69,15 @@ fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
 /// in metres.
 #[must_use]
 pub fn enu(observer: GeoPoint, target: GeoPoint) -> [f64; 3] {
+    enu_from_ecef(observer, to_ecef(target))
+}
+
+/// Offset from `observer` to an ECEF point (metres), in the observer's
+/// East-North-Up frame.
+#[must_use]
+pub fn enu_from_ecef(observer: GeoPoint, target: [f64; 3]) -> [f64; 3] {
     let o = to_ecef(observer);
-    let t = to_ecef(target);
-    let d = [t[0] - o[0], t[1] - o[1], t[2] - o[2]];
+    let d = [target[0] - o[0], target[1] - o[1], target[2] - o[2]];
 
     let lat = observer.lat_deg.to_radians();
     let lon = observer.lon_deg.to_radians();

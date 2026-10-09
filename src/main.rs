@@ -17,7 +17,7 @@ use overflight::providers::fixture::FixtureProvider;
 use overflight::providers::local::Local;
 use overflight::providers::opensky::{Credentials, OpenSky};
 use overflight::providers::{self, Aircraft, Provider, Query, Recorder};
-use overflight::{render, sun};
+use overflight::{render, satellite, sun};
 
 /// Frame time while aircraft are moving: about 30 fps.
 const MOVING_FRAME: Duration = Duration::from_millis(33);
@@ -114,6 +114,10 @@ struct Cli {
     /// Fake the current time as an RFC 3339 timestamp, for checking palettes.
     #[arg(long, hide = true, value_name = "RFC3339")]
     time: Option<String>,
+
+    /// Celestrak group to draw satellites from.
+    #[arg(long, hide = true, value_name = "GROUP")]
+    tle_group: Option<String>,
 }
 
 /// Fully resolved settings: config file, overridden by CLI flags, with
@@ -133,6 +137,7 @@ struct Settings {
     dump: bool,
     record: Option<PathBuf>,
     time: Option<String>,
+    tle_group: String,
     screensaver: bool,
 }
 
@@ -171,6 +176,11 @@ impl Settings {
             dump: cli.dump,
             record: cli.record.clone(),
             time: cli.time.clone(),
+            tle_group: cli
+                .tle_group
+                .clone()
+                .or_else(|| file.and_then(|config| config.tle_group.clone()))
+                .unwrap_or_else(|| satellite::DEFAULT_GROUP.to_string()),
             screensaver: cli.screensaver,
         })
     }
@@ -316,6 +326,17 @@ fn run_live(settings: &Settings) -> Result<()> {
     let mut app = App::new(query, source);
     app.units = settings.units;
     app.min_elevation_deg = settings.min_elevation;
+    app.set_satellites(satellite::embedded().unwrap_or_default());
+
+    // Refresh the TLEs from Celestrak in the background, unless offline.
+    let tle_rx = if settings.demo {
+        None
+    } else {
+        Some(spawn_tle_fetch(
+            providers::http_client()?,
+            settings.tle_group.clone(),
+        ))
+    };
 
     let fixed_time = settings
         .time
@@ -329,6 +350,7 @@ fn run_live(settings: &Settings) -> Result<()> {
         &mut terminal,
         &mut app,
         &mut fetcher,
+        tle_rx.as_ref(),
         fixed_time,
         settings.screensaver,
     );
@@ -336,10 +358,26 @@ fn run_live(settings: &Settings) -> Result<()> {
     result
 }
 
+/// Fetch TLEs once, in the background, and send them back when ready.
+fn spawn_tle_fetch(
+    client: reqwest::blocking::Client,
+    group: String,
+) -> std::sync::mpsc::Receiver<Vec<satellite::Satellite>> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        if let Ok(satellites) = satellite::fetch(&client, &group) {
+            let _ = sender.send(satellites);
+        }
+    });
+    receiver
+}
+
+#[allow(clippy::too_many_arguments)]
 fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
     app: &mut App,
     fetcher: &mut Fetcher,
+    tle_rx: Option<&std::sync::mpsc::Receiver<Vec<satellite::Satellite>>>,
     fixed_time: Option<f64>,
     screensaver: bool,
 ) -> Result<()> {
@@ -354,6 +392,11 @@ fn event_loop(
             match event {
                 FetchEvent::Aircraft(aircraft) => app.apply(&aircraft, now_s),
                 FetchEvent::Error(message) => app.set_error(message),
+            }
+        }
+        if let Some(receiver) = tle_rx {
+            while let Ok(satellites) = receiver.try_recv() {
+                app.set_satellites(satellites);
             }
         }
         app.update(now_s, utc_s);
