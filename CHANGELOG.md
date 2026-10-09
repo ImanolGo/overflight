@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-10-09
+
+### Added
+
+- Satellites, including the ISS: TLEs are fetched from Celestrak and
+  propagated with SGP4, drawn as slow-moving dots at night. A recorded set is
+  bundled so `--demo` works offline.
+- The Moon and the bright planets in the night sky, drawn with their
+  astronomical symbols.
+- Distinct glyphs for helicopters, gliders and balloons, from the ADS-B
+  emitter category.
+- A notification banner and alert colour for unusual aircraft: military,
+  emergency squawks, and a few rare types.
+- Horizon mode (`h`): a side-on view looking north, with planes rising over a
+  skyline.
+
+[0.2.0]: https://github.com/ImanolGo/overflight/releases/tag/v0.2.0
+
 ## [0.1.2] - 2026-10-09
 
 ### Changed

@@ -34,3 +34,7 @@ min_elevation = 0
 # environment variables OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET work too.
 # opensky_client_id = "..."
 # opensky_client_secret = "..."
+
+# Celestrak group to draw satellites from (default "stations", which includes
+# the ISS). Set to a different group for more satellites.
+# tle_group = "stations"

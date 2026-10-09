@@ -10,7 +10,7 @@ Look up from your terminal.
 
 ![overflight: aircraft drifting across a starry night sky, with a detail box for the selected plane](https://raw.githubusercontent.com/ImanolGo/overflight/main/demo.gif)
 
-> **Status:** 0.1 — usable and still growing. The plan lives in [PLAN.md](https://github.com/ImanolGo/overflight/blob/main/PLAN.md); see [DEVELOPMENT.md](https://github.com/ImanolGo/overflight/blob/main/DEVELOPMENT.md) for how it is built and released.
+> **Status:** 0.2 — usable and still growing. The plan lives in [PLAN.md](https://github.com/ImanolGo/overflight/blob/main/PLAN.md); see [DEVELOPMENT.md](https://github.com/ImanolGo/overflight/blob/main/DEVELOPMENT.md) for how it is built and released.
 
 overflight shows the aircraft flying above you right now, drawn as if you were lying on your back in a field and looking straight up. The edge of the circle is the horizon, the middle is directly overhead, and every plane drifts across it in real time with its callsign trailing behind. During the day the sky is blue, at dusk it fades, and at night you get stars.
 
