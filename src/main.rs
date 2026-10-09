@@ -126,6 +126,7 @@ struct Cli {
 
 /// Fully resolved settings: config file, overridden by CLI flags, with
 /// built-in defaults for anything still missing.
+#[derive(Debug)]
 struct Settings {
     lat: Option<f64>,
     lon: Option<f64>,
@@ -157,22 +158,56 @@ impl Settings {
             },
         };
 
+        let file_lat = file.and_then(|config| config.lat);
+        let file_lon = file.and_then(|config| config.lon);
+        let lat = cli.lat.or(file_lat);
+        let lon = cli.lon.or(file_lon);
+        if let Some(lat) = lat
+            && !(-90.0..=90.0).contains(&lat)
+        {
+            bail!(
+                "latitude must be between -90 and 90 (got {lat} from {})",
+                origin(cli.lat.is_some(), file_lat.is_some())
+            );
+        }
+        if let Some(lon) = lon
+            && !(-180.0..=180.0).contains(&lon)
+        {
+            bail!(
+                "longitude must be between -180 and 180 (got {lon} from {})",
+                origin(cli.lon.is_some(), file_lon.is_some())
+            );
+        }
+
+        let file_radius = file.and_then(|config| config.radius_km);
+        let radius_km = cli.radius_km.or(file_radius).unwrap_or(80.0);
+        // 463 km is the 250 nautical mile maximum airplanes.live allows.
+        if !(radius_km > 0.0 && radius_km <= 463.0) {
+            bail!(
+                "radius must be above 0 and at most 463 km (got {radius_km} from {})",
+                origin(cli.radius_km.is_some(), file_radius.is_some())
+            );
+        }
+
+        let file_min_elevation = file.and_then(|config| config.min_elevation);
+        let min_elevation = cli.min_elevation.or(file_min_elevation).unwrap_or(0.0);
+        if !(-5.0..=89.0).contains(&min_elevation) {
+            bail!(
+                "minimum elevation must be between -5 and 89 degrees (got {min_elevation} from {})",
+                origin(cli.min_elevation.is_some(), file_min_elevation.is_some())
+            );
+        }
+
         Ok(Self {
-            lat: cli.lat.or(file.and_then(|config| config.lat)),
-            lon: cli.lon.or(file.and_then(|config| config.lon)),
+            lat,
+            lon,
             alt_m: cli
                 .alt
                 .or(file.and_then(|config| config.alt_m))
                 .unwrap_or(0.0),
-            radius_km: cli
-                .radius_km
-                .or(file.and_then(|config| config.radius_km))
-                .unwrap_or(80.0),
+            radius_km,
             units: file.and_then(|config| config.units).unwrap_or_default(),
-            min_elevation: cli
-                .min_elevation
-                .or(file.and_then(|config| config.min_elevation))
-                .unwrap_or(0.0),
+            min_elevation,
             interval: cli.interval.or(file.and_then(|config| config.interval)),
             source,
             url: cli
@@ -192,6 +227,17 @@ impl Settings {
                 .unwrap_or_else(|| satellite::DEFAULT_GROUP.to_string()),
             screensaver: cli.screensaver,
         })
+    }
+}
+
+/// Where a setting came from, for error messages.
+fn origin(from_flag: bool, from_file: bool) -> &'static str {
+    if from_flag {
+        "the command line"
+    } else if from_file {
+        "the config file"
+    } else {
+        "the default"
     }
 }
 
@@ -560,6 +606,42 @@ mod tests {
         assert_eq!(settings.min_elevation, 0.0);
         assert_eq!(settings.units, Units::Metric);
         assert!(matches!(settings.source, SourceArg::AirplanesLive));
+    }
+
+    #[test]
+    fn rejects_out_of_range_location_and_radius() {
+        for args in [
+            vec!["overflight", "--lat", "200"],
+            vec!["overflight", "--lat", "-91"],
+            vec!["overflight", "--lon", "-500"],
+            vec!["overflight", "--lon", "181"],
+            vec!["overflight", "--radius-km", "0"],
+            vec!["overflight", "--radius-km", "-50"],
+            vec!["overflight", "--radius-km", "500"],
+            vec!["overflight", "--radius-km", "NaN"],
+            vec!["overflight", "--min-elevation", "90"],
+            vec!["overflight", "--min-elevation", "-40"],
+        ] {
+            let cli = Cli::parse_from(args.iter().copied());
+            let error = Settings::resolve(&cli, None)
+                .expect_err("expected a validation error")
+                .to_string();
+            assert!(error.contains("command line"), "for {args:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn validation_names_the_config_file_as_the_source() {
+        let file = FileConfig {
+            radius_km: Some(-5.0),
+            ..FileConfig::default()
+        };
+        let cli = Cli::parse_from(["overflight"]);
+        let error = Settings::resolve(&cli, Some(&file))
+            .expect_err("expected a validation error")
+            .to_string();
+        assert!(error.contains("radius"), "{error}");
+        assert!(error.contains("config file"), "{error}");
     }
 
     #[test]
