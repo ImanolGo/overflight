@@ -1,0 +1,57 @@
+#compdef overflight
+
+autoload -U is-at-least
+
+_overflight() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" : \
+'--lat=[Observer latitude in decimal degrees]:DEGREES:_default' \
+'--lon=[Observer longitude in decimal degrees]:DEGREES:_default' \
+'--alt=[Observer height above sea level, in metres]:METRES:_default' \
+'--source=[Where the aircraft data comes from \[default\: adsb-lol\]]:SOURCE:(adsb-lol airplanes-live local opensky)' \
+'--url=[URL of a local receiver'\''s aircraft.json (with --source local)]:URL:_default' \
+'--radius-km=[How far out to look, in kilometres \[default\: 80\]]:KM:_default' \
+'--min-elevation=[Ignore aircraft below this elevation, in degrees \[default\: 0\]]:DEGREES:_default' \
+'--interval=[Seconds between updates, no faster than the source allows]:SECONDS:_default' \
+'--log=[Append a CSV row per aircraft when it leaves the sky or you quit]:PATH:_files' \
+'--colors=[Colour support\: auto, truecolor, 256 or none \[default\: auto\]]:MODE:((auto\:"24-bit if \`COLORTERM\` says so, else 256 colours; no colour under \`NO_COLOR\`"
+truecolor\:""
+256\:""
+none\:""))' \
+'--record=[Directory to save raw responses into, for building fixtures]:DIR:_files' \
+'--time=[Fake the current time as an RFC 3339 timestamp, for checking palettes]:RFC3339:_default' \
+'--tle-group=[Celestrak group to draw satellites from]:GROUP:_default' \
+'--demo[Replay recorded traffic from the bundled fixture; no network needed]' \
+'--screensaver[Screensaver mode\: any key exits]' \
+'--no-mouse[Do not capture the mouse, so you can select text as usual]' \
+'--no-routes[Do not look up the selected aircraft'\''s route (no adsbdb request)]' \
+'--bell[Ring the terminal bell when an unusual aircraft appears]' \
+'--dump[Fetch once, print a table of aircraft, then exit]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+'-V[Print version]' \
+'--version[Print version]' \
+&& ret=0
+}
+
+(( $+functions[_overflight_commands] )) ||
+_overflight_commands() {
+    local commands; commands=()
+    _describe -t commands 'overflight commands' commands "$@"
+}
+
+if [ "$funcstack[1]" = "_overflight" ]; then
+    _overflight "$@"
+else
+    compdef _overflight overflight
+fi

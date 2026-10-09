@@ -1,0 +1,116 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH overflight 1  "overflight 0.4.0" 
+.SH NAME
+overflight \- See the aircraft flying above you as a live sky view.
+.SH SYNOPSIS
+\fBoverflight\fR [\fB\-\-lat\fR] [\fB\-\-lon\fR] [\fB\-\-alt\fR] [\fB\-\-source\fR] [\fB\-\-url\fR] [\fB\-\-demo\fR] [\fB\-\-radius\-km\fR] [\fB\-\-min\-elevation\fR] [\fB\-\-interval\fR] [\fB\-\-screensaver\fR] [\fB\-\-log\fR] [\fB\-\-no\-mouse\fR] [\fB\-\-no\-routes\fR] [\fB\-\-bell\fR] [\fB\-\-colors\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] 
+.SH DESCRIPTION
+See the aircraft flying above you as a live sky view.
+.PP
+Tell overflight where you are with \-\-lat/\-\-lon or a config file, and it draws the planes overhead: the centre of the circle is straight up, the edge is the horizon, and each plane drifts across in real time with its callsign trailing behind. The sky is blue by day, fades at dusk, and at night shows the real stars and constellations, the Moon, the bright planets and passing satellites.
+.SH OPTIONS
+.TP
+\fB\-\-lat\fR \fI<DEGREES>\fR
+Observer latitude in decimal degrees
+.TP
+\fB\-\-lon\fR \fI<DEGREES>\fR
+Observer longitude in decimal degrees
+.TP
+\fB\-\-alt\fR \fI<METRES>\fR
+Observer height above sea level, in metres
+.TP
+\fB\-\-source\fR \fI<SOURCE>\fR
+Where the aircraft data comes from [default: adsb\-lol]
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+adsb\-lol
+.IP \(bu 2
+airplanes\-live
+.IP \(bu 2
+local
+.IP \(bu 2
+opensky
+.RE
+.TP
+\fB\-\-url\fR \fI<URL>\fR
+URL of a local receiver\*(Aqs aircraft.json (with \-\-source local)
+.TP
+\fB\-\-demo\fR
+Replay recorded traffic from the bundled fixture; no network needed
+.TP
+\fB\-\-radius\-km\fR \fI<KM>\fR
+How far out to look, in kilometres [default: 80]
+.TP
+\fB\-\-min\-elevation\fR \fI<DEGREES>\fR
+Ignore aircraft below this elevation, in degrees [default: 0]
+.TP
+\fB\-\-interval\fR \fI<SECONDS>\fR
+Seconds between updates, no faster than the source allows
+.TP
+\fB\-\-screensaver\fR
+Screensaver mode: any key exits
+.TP
+\fB\-\-log\fR \fI<PATH>\fR
+Append a CSV row per aircraft when it leaves the sky or you quit
+.TP
+\fB\-\-no\-mouse\fR
+Do not capture the mouse, so you can select text as usual
+.TP
+\fB\-\-no\-routes\fR
+Do not look up the selected aircraft\*(Aqs route (no adsbdb request)
+.TP
+\fB\-\-bell\fR
+Ring the terminal bell when an unusual aircraft appears
+.TP
+\fB\-\-colors\fR \fI<MODE>\fR
+Colour support: auto, truecolor, 256 or none [default: auto]
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+auto: 24\-bit if `COLORTERM` says so, else 256 colours; no colour under `NO_COLOR`
+.IP \(bu 2
+truecolor
+.IP \(bu 2
+256
+.IP \(bu 2
+none
+.RE
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH EXTRA
+Examples:
+  overflight \-\-lat 52.52 \-\-lon 13.40
+  overflight \-\-demo
+  overflight \-\-source local \-\-url http://your\-pi/data/aircraft.json
+  overflight \-\-log ~/flights.csv \-\-bell
+  overflight \-\-screensaver \-\-demo
+
+Configuration:
+  Defaults can live in config.toml in your config directory
+  (~/.config/overflight/config.toml on Linux). Command\-line flags win.
+
+Keys while running:
+  q / Esc        quit
+  Tab            select the next aircraft or satellite and show its details
+  l / t          show or hide callsigns / trails
+  m              switch between sky and map orientation
+  h              side\-on horizon view; Left/Right turn it
+  c              show or hide constellation lines
+  u              switch between metric and imperial
+  click          select the nearest aircraft or satellite (\-\-no\-mouse to disable)
+
+The status line shows how many aircraft are in range, the next aircraft due overhead, and the next visible ISS pass at twilight. Military aircraft, emergency squawks and rare types are highlighted, and \-\-bell can ring for them. When there is a network, the selected aircraft\*(Aqs route is looked up.
+.SH VERSION
+v0.4.0

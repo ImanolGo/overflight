@@ -48,3 +48,34 @@ jobs:
       # with exactly the minimum supported toolchain.
       - name: Build at the declared MSRV
         run: cargo build --all-targets --locked
+
+  artifacts:
+    name: man page and completions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The man page and completions are generated from the clap definition and
+      # committed, so they must not drift from the CLI.
+      - name: Regenerate
+        run: cargo run --example gen-artifacts
+
+      - name: Check they are committed
+        run: git diff --exit-code -- man completions
+
+  publish-check:
+    name: cargo publish --dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo publish --dry-run
+        run: cargo publish --dry-run

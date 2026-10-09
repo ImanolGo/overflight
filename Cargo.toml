@@ -35,6 +35,8 @@ signal-hook = "0.3"
 [dev-dependencies]
 insta = "1"
 approx = "0.5"
+clap_complete = "4"
+clap_mangen = "0.2"
 
 [profile.release]
 lto = true
@@ -59,4 +61,8 @@ assets = [
     ["target/release/overflight", "usr/bin/", "755"],
     ["README.md", "usr/share/doc/overflight/README.md", "644"],
     ["overflight.example.toml", "usr/share/doc/overflight/config.toml.example", "644"],
+    ["man/overflight.1", "usr/share/man/man1/", "644"],
+    ["completions/overflight.bash", "usr/share/bash-completion/completions/overflight", "644"],
+    ["completions/_overflight", "usr/share/zsh/vendor-completions/_overflight", "644"],
+    ["completions/overflight.fish", "usr/share/fish/vendor_completions.d/overflight.fish", "644"],
 ]
