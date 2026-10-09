@@ -210,12 +210,23 @@ impl App {
         if let Some(logger) = &mut self.logger {
             logger.append(&logbook::Record {
                 time: sun::Utc::from_unix_seconds(utc_s as i64).to_rfc3339(),
+                hex: track.id.clone(),
                 callsign: track.callsign.clone(),
                 registration: track.registration.clone(),
                 type_code: track.type_code.clone(),
                 max_elevation_deg: track.max_elevation_deg,
+                closest_km: track.closest_m / 1000.0,
             });
         }
+    }
+
+    /// Log every aircraft still tracked, e.g. when the user quits.
+    pub fn log_all(&mut self, utc_s: f64) {
+        let tracks = std::mem::take(&mut self.tracks);
+        for track in &tracks {
+            self.log_departure(track, utc_s);
+        }
+        self.tracks = tracks;
     }
 
     /// Replace the satellite element sets, e.g. after a TLE refresh.

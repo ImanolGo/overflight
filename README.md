@@ -115,7 +115,7 @@ in 1:40"), and — at twilight — the next visible ISS pass. It also warns when
 the satellite data is out of date.
 
 `--log file.csv` keeps a spotter's logbook: one row per aircraft when it leaves
-the sky. `--bell` rings the terminal bell when an unusual aircraft appears.
+the sky, and for whatever is still up when you quit. `--bell` rings the terminal bell when an unusual aircraft appears.
 
 `units = "metric"` shows metres, km/h and kilometres; `"imperial"` shows feet,
 knots and miles.

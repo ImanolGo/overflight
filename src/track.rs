@@ -63,6 +63,8 @@ pub struct Track {
     pub vertical_rate_ms: Option<f64>,
     /// Highest elevation this aircraft has reached, degrees.
     pub max_elevation_deg: f64,
+    /// The closest slant range this aircraft has come, metres.
+    pub closest_m: f64,
 
     anchor: [f64; 3],
     anchor_time_s: f64,
@@ -81,6 +83,8 @@ impl Track {
     pub fn new(observation: &Aircraft, observer: GeoPoint, now_s: f64) -> Self {
         let velocity = velocity_from(observation);
         let anchor = observation_enu(observation, observer, velocity);
+        let closest_m =
+            (anchor[0] * anchor[0] + anchor[1] * anchor[1] + anchor[2] * anchor[2]).sqrt();
         Self {
             id: observation.id.clone(),
             callsign: observation.callsign.clone(),
@@ -94,6 +98,7 @@ impl Track {
             ground_speed_ms: observation.ground_speed_ms,
             vertical_rate_ms: observation.vertical_rate_ms,
             max_elevation_deg: 0.0,
+            closest_m,
             anchor,
             anchor_time_s: now_s,
             velocity,
@@ -149,8 +154,9 @@ impl Track {
             lerp(self.ease_from, target, smoothstep(progress))
         };
 
-        let (_, elevation, _) = self.az_el();
+        let (_, elevation, range) = self.az_el();
         self.max_elevation_deg = self.max_elevation_deg.max(elevation);
+        self.closest_m = self.closest_m.min(range);
 
         while self
             .trail

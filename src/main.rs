@@ -120,7 +120,7 @@ struct Cli {
     #[arg(long)]
     screensaver: bool,
 
-    /// Append a CSV line per aircraft when it leaves the sky.
+    /// Append a CSV row per aircraft when it leaves the sky or you quit.
     #[arg(long, value_name = "PATH")]
     log: Option<PathBuf>,
 
@@ -487,6 +487,8 @@ fn run_live(settings: &Settings) -> Result<()> {
         let _ = execute!(std::io::stdout(), event::DisableMouseCapture);
     }
     ratatui::restore();
+    // On a normal quit, write out whatever is still in the sky.
+    app.log_all(now_unix_seconds());
     result
 }
 
