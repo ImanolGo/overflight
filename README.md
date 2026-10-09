@@ -91,6 +91,7 @@ Keys while it's running:
 | `m` | Switch between sky view and map orientation |
 | `h` | Switch to the side-on horizon view |
 | `←` / `→` | Turn the horizon view |
+| `c` | Show or hide constellation lines |
 | `u` | Switch between metric and imperial |
 
 The detail box for the selected aircraft shows its callsign, registration,

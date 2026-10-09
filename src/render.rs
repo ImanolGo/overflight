@@ -15,14 +15,14 @@ use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::canvas::{Canvas, Circle, Points};
+use ratatui::widgets::canvas::{Canvas, Circle, Line as CanvasLine, Points};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 
 use crate::app::App;
 use crate::geo;
 use crate::providers::AircraftKind;
 use crate::satellite::SatellitePosition;
-use crate::sky::Body;
+use crate::sky::{self, Body};
 use crate::track::Track;
 
 /// Terminal cells are approximately twice as tall as they are wide.
@@ -291,17 +291,43 @@ pub fn render(frame: &mut Frame, app: &App) {
         .marker(symbols::Marker::Braille)
         .paint(|ctx| {
             if palette.shows_stars() {
-                for star in &app.stars {
-                    let x = if app.sky_orientation {
-                        -star.east
-                    } else {
-                        star.east
-                    };
-                    let (x, y) = geometry.direction_canvas(x, star.north);
+                let julian_day = app.utc_s / 86_400.0 + 2_440_587.5;
+                let (lat, lon) = (app.query.lat, app.query.lon);
+
+                for star in sky::catalogue() {
+                    let (azimuth, elevation) =
+                        sky::horizontal(star.ra_deg, star.dec_deg, lat, lon, julian_day);
+                    if elevation < 0.0 {
+                        continue;
+                    }
+                    let (x, y) = geo::project(azimuth, elevation, app.sky_orientation);
+                    let (x, y) = geometry.direction_canvas(x, y);
+                    let brightness = ((5.0 - star.magnitude) / 6.0).clamp(0.15, 1.0);
                     ctx.draw(&Points {
                         coords: &[(x, y)],
-                        color: dim(palette.star, star.brightness),
+                        color: dim(palette.star, brightness),
                     });
+                }
+
+                if app.constellation_lines {
+                    for line in sky::constellation_lines() {
+                        let (az1, el1) = sky::horizontal(line[0], line[1], lat, lon, julian_day);
+                        let (az2, el2) = sky::horizontal(line[2], line[3], lat, lon, julian_day);
+                        if el1 < 0.0 || el2 < 0.0 {
+                            continue;
+                        }
+                        let (x1, y1) = geo::project(az1, el1, app.sky_orientation);
+                        let (x2, y2) = geo::project(az2, el2, app.sky_orientation);
+                        let (x1, y1) = geometry.direction_canvas(x1, y1);
+                        let (x2, y2) = geometry.direction_canvas(x2, y2);
+                        ctx.draw(&CanvasLine {
+                            x1,
+                            y1,
+                            x2,
+                            y2,
+                            color: dim(palette.ring, 0.8),
+                        });
+                    }
                 }
             }
 
@@ -1170,6 +1196,21 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains('☾'), "the Moon should be drawn by day");
         assert!(!text.contains('♂'), "planets stay for twilight and night");
+    }
+
+    #[test]
+    fn constellation_lines_add_to_the_night_sky() {
+        let utc = crate::sun::parse_rfc3339_seconds("2024-06-21T00:00:00Z").unwrap() as f64;
+
+        let render_text = |lines: bool| {
+            let mut app = demo_app(utc);
+            app.constellation_lines = lines;
+            let mut terminal = Terminal::new(TestBackend::new(100, 32)).unwrap();
+            terminal.draw(|frame| render(frame, &app)).unwrap();
+            buffer_text(terminal.backend().buffer())
+        };
+
+        assert_ne!(render_text(false), render_text(true));
     }
 
     #[test]

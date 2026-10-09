@@ -1,0 +1,28 @@
+# Constellation line segments as pairs of HR numbers (Yale Bright Star
+# Catalogue). A small hand-picked set, not the full sky.
+# Ursa Major (the Plough)
+4301,4295
+4295,4550
+4550,4660
+4660,4905
+4905,5054
+5054,5191
+4660,4301
+# Orion
+2061,1790
+1852,1903
+1903,1948
+1948,2061
+1852,1790
+1713,2004
+1713,1852
+2004,1948
+# Cassiopeia
+21,264
+264,403
+403,542
+542,888
+# Cygnus (the Northern Cross)
+7924,7796
+7796,7949
+7796,7528

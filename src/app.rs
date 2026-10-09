@@ -1,9 +1,6 @@
 //! Application state: the set of tracked aircraft and the toggles that affect
 //! how they are drawn.
 
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
-
 use crate::config::Units;
 use crate::geo::{self, GeoPoint};
 use crate::providers::{Aircraft, Query};
@@ -12,44 +9,12 @@ use crate::sky::{self, BodyPosition};
 use crate::sun::{self, Utc};
 use crate::track::Track;
 
-/// Seed for the star field, so it is the same every run and never flickers.
-const STAR_SEED: u64 = 0x5EED_0F1E_2D3C_4B5A;
-/// How many stars to scatter in the night sky.
-const STAR_COUNT: usize = 140;
-
-/// A fixed star, in disc coordinates with the horizon at radius one.
-#[derive(Debug, Clone, Copy)]
-pub struct Star {
-    /// East component, in horizon radii.
-    pub east: f64,
-    /// North component, in horizon radii.
-    pub north: f64,
-    /// Relative brightness, `0..1`.
-    pub brightness: f64,
-}
-
 /// The next aircraft expected to pass high overhead.
 #[derive(Debug, Clone)]
 pub struct PassPrediction {
     pub label: String,
     pub elevation_deg: f64,
     pub seconds: f64,
-}
-
-fn generate_stars() -> Vec<Star> {
-    let mut rng = StdRng::seed_from_u64(STAR_SEED);
-    (0..STAR_COUNT)
-        .map(|_| {
-            // sqrt keeps the scatter uniform across the disc, not clumped.
-            let radius = rng.random_range(0.0_f64..1.0).sqrt() * 0.98;
-            let angle = rng.random_range(0.0..std::f64::consts::TAU);
-            Star {
-                east: radius * angle.sin(),
-                north: radius * angle.cos(),
-                brightness: rng.random_range(0.35..1.0),
-            }
-        })
-        .collect()
 }
 
 /// Everything the UI needs to draw a frame.
@@ -61,6 +26,8 @@ pub struct App {
     pub sky_orientation: bool,
     /// Draw the side-on horizon view instead of the overhead circle.
     pub horizon: bool,
+    /// Draw constellation lines connecting the bright stars.
+    pub constellation_lines: bool,
     /// The compass direction the horizon view looks towards, degrees.
     pub view_azimuth_deg: f64,
     pub show_callsigns: bool,
@@ -88,8 +55,6 @@ pub struct App {
     pub satellite_positions: Vec<SatellitePosition>,
     /// When the satellite positions were last propagated.
     satellite_positions_at: f64,
-    /// Fixed star field for the night sky.
-    pub stars: Vec<Star>,
     /// Id of the selected aircraft, if any.
     pub selected: Option<String>,
     /// Name of the selected satellite, if any.
@@ -115,6 +80,7 @@ impl App {
             source: source.into(),
             sky_orientation: true,
             horizon: false,
+            constellation_lines: false,
             view_azimuth_deg: 0.0,
             show_callsigns: true,
             show_trails: true,
@@ -130,7 +96,6 @@ impl App {
             satellites_stale: false,
             satellite_positions: Vec::new(),
             satellite_positions_at: f64::NEG_INFINITY,
-            stars: generate_stars(),
             selected: None,
             selected_satellite: None,
             notification: None,
@@ -398,17 +363,9 @@ mod tests {
     }
 
     #[test]
-    fn stars_are_fixed_inside_the_disc() {
+    fn constellation_lines_start_off() {
         let app = App::new(query(), "test");
-        assert_eq!(app.stars.len(), STAR_COUNT);
-        for star in &app.stars {
-            assert!(star.east.hypot(star.north) <= 1.0);
-            assert!((0.35..=1.0).contains(&star.brightness));
-        }
-        let again = App::new(query(), "test");
-        let first: Vec<f64> = app.stars.iter().map(|star| star.east).collect();
-        let second: Vec<f64> = again.stars.iter().map(|star| star.east).collect();
-        assert_eq!(first, second, "star field must be deterministic");
+        assert!(!app.constellation_lines);
     }
 
     #[test]

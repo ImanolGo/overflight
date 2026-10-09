@@ -99,6 +99,59 @@ fn rev(degrees: f64) -> f64 {
     degrees.rem_euclid(360.0)
 }
 
+/// A star from the Yale Bright Star Catalogue.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Star {
+    /// Harvard Revised (Bright Star) catalogue number.
+    pub hr: u32,
+    pub ra_deg: f64,
+    pub dec_deg: f64,
+    /// Visual magnitude; lower is brighter.
+    pub magnitude: f64,
+}
+
+/// The brightest stars (visual magnitude 4.0 and under), brightest first.
+#[must_use]
+pub fn catalogue() -> &'static [Star] {
+    static STARS: std::sync::OnceLock<Vec<Star>> = std::sync::OnceLock::new();
+    STARS.get_or_init(|| {
+        include_str!("../fixtures/stars.csv")
+            .lines()
+            .filter(|line| !line.starts_with('#') && !line.trim().is_empty())
+            .filter_map(|line| {
+                let mut fields = line.split(',');
+                Some(Star {
+                    hr: fields.next()?.trim().parse().ok()?,
+                    ra_deg: fields.next()?.trim().parse().ok()?,
+                    dec_deg: fields.next()?.trim().parse().ok()?,
+                    magnitude: fields.next()?.trim().parse().ok()?,
+                })
+            })
+            .collect()
+    })
+}
+
+/// Constellation line segments, as `[ra1, dec1, ra2, dec2]` in degrees.
+#[must_use]
+pub fn constellation_lines() -> &'static [[f64; 4]] {
+    static LINES: std::sync::OnceLock<Vec<[f64; 4]>> = std::sync::OnceLock::new();
+    LINES.get_or_init(|| {
+        let stars = catalogue();
+        include_str!("../fixtures/constellations.csv")
+            .lines()
+            .filter(|line| !line.starts_with('#') && !line.trim().is_empty())
+            .filter_map(|line| {
+                let (first, second) = line.split_once(',')?;
+                let hr1: u32 = first.trim().parse().ok()?;
+                let hr2: u32 = second.trim().parse().ok()?;
+                let first = stars.iter().find(|star| star.hr == hr1)?;
+                let second = stars.iter().find(|star| star.hr == hr2)?;
+                Some([first.ra_deg, first.dec_deg, second.ra_deg, second.dec_deg])
+            })
+            .collect()
+    })
+}
+
 /// Solve Kepler's equation for the eccentric anomaly, in radians.
 fn eccentric_anomaly(mean_anomaly_deg: f64, eccentricity: f64) -> f64 {
     let mean = mean_anomaly_deg.to_radians();
@@ -289,7 +342,7 @@ fn ecliptic_to_equatorial(longitude_deg: f64, latitude_deg: f64, obliquity_deg: 
 }
 
 /// Equatorial to horizontal coordinates for an observer, degrees.
-fn horizontal(
+pub fn horizontal(
     ra_deg: f64,
     dec_deg: f64,
     lat_deg: f64,
@@ -370,5 +423,22 @@ mod tests {
             assert!((0.0..360.0).contains(&position.azimuth_deg));
             assert!((-90.0..=90.0).contains(&position.elevation_deg));
         }
+    }
+
+    #[test]
+    fn the_catalogue_starts_with_sirius() {
+        let stars = catalogue();
+        assert!(stars.len() > 400, "{} stars", stars.len());
+        let brightest = stars
+            .iter()
+            .min_by(|a, b| a.magnitude.partial_cmp(&b.magnitude).unwrap())
+            .unwrap();
+        assert_eq!(brightest.hr, 2491, "Sirius is the brightest star");
+        assert!((brightest.magnitude - (-1.46)).abs() < 0.01);
+    }
+
+    #[test]
+    fn constellation_segments_resolve_to_stars() {
+        assert!(constellation_lines().len() > 10);
     }
 }

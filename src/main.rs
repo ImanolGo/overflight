@@ -563,6 +563,10 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             app.units = app.units.toggled();
             false
         }
+        KeyCode::Char('c') => {
+            app.constellation_lines = !app.constellation_lines;
+            false
+        }
         _ => false,
     }
 }
