@@ -3,7 +3,7 @@ name = "overflight"
 version = "0.1.0"
 edition = "2024"
 description = "See the aircraft flying above you, as a live sky view in your terminal."
-repository = "https://github.com/overflight/overflight"
+repository = "https://github.com/ImanolGo/overflight"
 license = "MIT"
 readme = "README.md"
 
