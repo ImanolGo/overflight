@@ -1,10 +1,10 @@
 # overflight
 
-[![crates.io](https://img.shields.io/crates/v/overflight.svg)](https://crates.io/crates/overflight)
+[![crates.io](https://img.shields.io/crates/v/overflight.svg?v=2)](https://crates.io/crates/overflight)
 [![docs.rs](https://docs.rs/overflight/badge.svg?v=2)](https://docs.rs/overflight)
 [![CI](https://github.com/ImanolGo/overflight/actions/workflows/ci.yml/badge.svg)](https://github.com/ImanolGo/overflight/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/ImanolGo/overflight)](https://github.com/ImanolGo/overflight/releases)
-[![License: MIT](https://img.shields.io/crates/l/overflight.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/ImanolGo/overflight?v=2)](https://github.com/ImanolGo/overflight/releases)
+[![License: MIT](https://img.shields.io/crates/l/overflight.svg?v=2)](LICENSE)
 
 Look up from your terminal.
 
