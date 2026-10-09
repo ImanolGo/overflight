@@ -28,6 +28,14 @@ pub struct Star {
     pub brightness: f64,
 }
 
+/// The next aircraft expected to pass high overhead.
+#[derive(Debug, Clone)]
+pub struct PassPrediction {
+    pub label: String,
+    pub elevation_deg: f64,
+    pub seconds: f64,
+}
+
 fn generate_stars() -> Vec<Star> {
     let mut rng = StdRng::seed_from_u64(STAR_SEED);
     (0..STAR_COUNT)
@@ -88,6 +96,8 @@ pub struct App {
     pub selected_satellite: Option<String>,
     /// Latest "unusual aircraft" notification and when it arrived.
     pub notification: Option<(String, f64)>,
+    /// The next aircraft expected to pass high overhead.
+    pub pass_prediction: Option<PassPrediction>,
     /// Preferred display units.
     pub units: Units,
     /// Extra rare type codes from the config, on top of the built-in ones.
@@ -124,6 +134,7 @@ impl App {
             selected: None,
             selected_satellite: None,
             notification: None,
+            pass_prediction: None,
             units: Units::Metric,
             rare_types: Vec::new(),
             min_elevation_deg: 0.0,
@@ -226,6 +237,25 @@ impl App {
         let min_elevation = self.min_elevation_deg;
         self.tracks
             .retain(|track| !track.stale(now_s) && track.az_el().1 >= min_elevation);
+
+        self.pass_prediction = self
+            .tracks
+            .iter()
+            .filter_map(|track| {
+                track
+                    .next_peak(now_s, 300.0)
+                    .map(|(elevation_deg, seconds)| PassPrediction {
+                        label: track.label().to_string(),
+                        elevation_deg,
+                        seconds,
+                    })
+            })
+            .filter(|pass| pass.elevation_deg >= 20.0 && pass.seconds >= 10.0)
+            .max_by(|a, b| {
+                a.elevation_deg
+                    .partial_cmp(&b.elevation_deg)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
     }
 
     /// Number of aircraft currently tracked.

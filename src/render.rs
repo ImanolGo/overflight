@@ -757,6 +757,17 @@ fn status_line(app: &App) -> Line<'static> {
         )),
         None => spans.push(Span::styled(" · waiting for data", base)),
     }
+    if let Some(pass) = &app.pass_prediction {
+        let minutes = (pass.seconds / 60.0) as u64;
+        let seconds = (pass.seconds % 60.0) as u64;
+        spans.push(Span::styled(
+            format!(
+                " · {} will pass {:.0}° up in {minutes}:{seconds:02}",
+                pass.label, pass.elevation_deg
+            ),
+            base,
+        ));
+    }
     if app.satellites_stale {
         spans.push(Span::styled(" · satellite data out of date", base));
     }

@@ -197,6 +197,25 @@ impl Track {
         )
     }
 
+    /// The highest elevation this aircraft will reach in the next `horizon_s`
+    /// seconds by dead reckoning, and how long until then, if it is above the
+    /// horizon at all.
+    #[must_use]
+    pub fn next_peak(&self, now_s: f64, horizon_s: f64) -> Option<(f64, f64)> {
+        const STEP_S: f64 = 10.0;
+        let mut best: Option<(f64, f64)> = None;
+        let mut t = 0.0;
+        while t <= horizon_s {
+            let [east, north, up] = self.predicted(now_s + t);
+            let elevation = up.atan2(east.hypot(north)).to_degrees();
+            if best.is_none_or(|(best_elevation, _)| elevation > best_elevation) {
+                best = Some((elevation, t));
+            }
+            t += STEP_S;
+        }
+        best.filter(|(elevation, _)| *elevation > 0.0)
+    }
+
     /// Trail points and their age, oldest first.
     pub fn trail(&self, now_s: f64) -> impl Iterator<Item = ([f64; 3], f64)> + '_ {
         self.trail
@@ -284,6 +303,17 @@ mod tests {
         // Moved ~1 km east in 10 s: the range grows and the azimuth swings east.
         assert!(range_1 > range_0 + 200.0, "range {range_0} -> {range_1}");
         assert!(azimuth > 40.0 && azimuth < 50.0, "azimuth {azimuth}");
+    }
+
+    #[test]
+    fn predicts_the_highest_point_ahead() {
+        // Due north about 5 km away, 10 km up, heading south at 200 m/s: it
+        // passes nearly overhead in around 25 s.
+        let obs = aircraft(52.565, 13.40, 10_000.0, 180.0, 200.0);
+        let track = Track::new(&obs, observer(), 0.0);
+        let (elevation, seconds) = track.next_peak(0.0, 300.0).unwrap();
+        assert!(elevation > 80.0, "peak elevation {elevation}");
+        assert!((10.0..50.0).contains(&seconds), "eta {seconds}");
     }
 
     #[test]
