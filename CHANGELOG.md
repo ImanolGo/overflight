@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-09
+
+### Added
+
+- Observer altitude (`--alt` / `alt_m` in the config), so low, close traffic is
+  placed at the right angle.
+- Satellites are selectable with Tab; the detail box shows their altitude and
+  whether they are in sunlight or Earth's shadow.
+- `←`/`→` turn the horizon view, with out-of-view counts at each edge, and a
+  dot instead of a misleading arrow for traffic moving towards or away.
+- The config file can list extra rare type codes (`rare_types`).
+- The Moon is drawn in daylight, whenever it is above the horizon.
+
+### Changed
+
+- Satellite TLEs are cached and refreshed at most every 12 hours, with a
+  24-hour backoff after a failure; data older than 7 days is not drawn.
+- Providers can report rate limits and the fetcher honours them exactly.
+- Location, radius and minimum elevation are validated with clear messages.
+
+### Fixed
+
+- Quitting no longer hangs while a request is in flight.
+- Labels no longer flicker when a source omits a callsign, registration or type,
+  and no longer overwrite each other in busy airspace.
+- The rare type list only contains codes that can appear in the data.
+
+[0.3.0]: https://github.com/ImanolGo/overflight/releases/tag/v0.3.0
+
 ## [0.2.0] - 2026-10-09
 
 ### Added
