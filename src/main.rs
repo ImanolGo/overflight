@@ -1,11 +1,10 @@
 //! overflight: see the aircraft flying above you as a live sky view.
 
-mod render;
-
 use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use overflight::render;
 
 /// How long the event loop waits for a key before redrawing.
 const FRAME_INTERVAL: Duration = Duration::from_millis(100);
