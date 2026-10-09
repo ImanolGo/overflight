@@ -14,6 +14,7 @@ use overflight::app::App;
 use overflight::config::{FileConfig, Units};
 use overflight::fetcher::{FetchEvent, Fetcher};
 use overflight::geo;
+use overflight::providers::adsb_lol::AdsbLol;
 use overflight::providers::airplanes_live::AirplanesLive;
 use overflight::providers::fixture::FixtureProvider;
 use overflight::providers::local::Local;
@@ -64,6 +65,7 @@ them. When there is a network, the selected aircraft's route is looked up.";
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum SourceArg {
+    AdsbLol,
     AirplanesLive,
     Local,
     Opensky,
@@ -90,7 +92,7 @@ struct Cli {
     #[arg(long, allow_negative_numbers = true, value_name = "METRES")]
     alt: Option<f64>,
 
-    /// Where the aircraft data comes from [default: airplanes-live].
+    /// Where the aircraft data comes from [default: adsb-lol].
     #[arg(long, value_enum, value_name = "SOURCE")]
     source: Option<SourceArg>,
 
@@ -181,7 +183,7 @@ impl Settings {
             None => match file.and_then(|config| config.source.as_deref()) {
                 Some(name) => <SourceArg as ValueEnum>::from_str(name, true)
                     .map_err(|_| anyhow::anyhow!("unknown source {name:?} in config file"))?,
-                None => SourceArg::AirplanesLive,
+                None => SourceArg::AdsbLol,
             },
         };
 
@@ -208,7 +210,7 @@ impl Settings {
 
         let file_radius = file.and_then(|config| config.radius_km);
         let radius_km = cli.radius_km.or(file_radius).unwrap_or(80.0);
-        // 463 km is the 250 nautical mile maximum airplanes.live allows.
+        // 463 km is the 250 nautical mile maximum the point APIs allow.
         if !(radius_km > 0.0 && radius_km <= 463.0) {
             bail!(
                 "radius must be above 0 and at most 463 km (got {radius_km} from {})",
@@ -321,6 +323,10 @@ fn build_provider(settings: &Settings) -> Result<(Box<dyn Provider>, Query)> {
     let recorder = settings.record.clone().map(Recorder::new);
 
     let provider: Box<dyn Provider> = match settings.source {
+        SourceArg::AdsbLol => match recorder {
+            Some(recorder) => Box::new(AdsbLol::new(client).with_recorder(recorder)),
+            None => Box::new(AdsbLol::new(client)),
+        },
         SourceArg::AirplanesLive => match recorder {
             Some(recorder) => Box::new(AirplanesLive::new(client).with_recorder(recorder)),
             None => Box::new(AirplanesLive::new(client)),
@@ -684,7 +690,7 @@ mod tests {
         assert_eq!(settings.radius_km, 80.0);
         assert_eq!(settings.min_elevation, 0.0);
         assert_eq!(settings.units, Units::Metric);
-        assert!(matches!(settings.source, SourceArg::AirplanesLive));
+        assert!(matches!(settings.source, SourceArg::AdsbLol));
     }
 
     #[test]

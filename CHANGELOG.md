@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The default data source is now [adsb.lol](https://adsb.lol), which is open to
+  everyone. airplanes.live now limits its API to people who feed it ADS-B data,
+  so it answers `403` to other clients; it is still available with
+  `--source airplanes-live`.
+
 ## [0.4.0] - 2026-10-09
 
 ### Added

@@ -11,10 +11,12 @@ use anyhow::Result;
 
 use crate::geo::{self, GeoPoint};
 
+pub mod adsb_lol;
 pub mod airplanes_live;
 pub mod fixture;
 pub mod local;
 pub mod opensky;
+pub(crate) mod point;
 pub mod readsb;
 
 /// A provider asked us to slow down.

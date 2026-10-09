@@ -1,9 +1,9 @@
 //! Shared parser for readsb-style JSON.
 //!
-//! Both airplanes.live (`{"ac": [...]}`) and a local receiver
-//! (`{"aircraft": [...]}`) use the same per-aircraft field format, documented
-//! in readsb's `README-json.md`. Every field is optional; aircraft without a
-//! position are skipped.
+//! Both the point APIs (airplanes.live and adsb.lol, which return
+//! `{"ac": [...]}`) and a local receiver (`{"aircraft": [...]}`) use the same
+//! per-aircraft field format, documented in readsb's `README-json.md`. Every
+//! field is optional; aircraft without a position are skipped.
 
 use anyhow::{Result, anyhow};
 use serde::Deserialize;

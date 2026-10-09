@@ -35,11 +35,12 @@ JSON. `unwrap`/`expect` are confined to tests and `main` setup.
   providers, tracking, rendering) live in `lib.rs` so they can be tested and
   documented; `main.rs` owns the terminal and the CLI. This also lets docs.rs
   build.
-- **airplanes.live is unreachable from some networks.** It answered every
-  request from the development environment with `403 Please contact us...`, so
-  the default source could not be exercised live there. The bundled demo
-  fixture was therefore recorded from **adsb.lol**, which serves the identical
-  readsb JSON shape, for 60 s at 5 s intervals around Heathrow.
+- **airplanes.live now limits its API to its own feeders.** It answers every
+  other request with `403 Please contact us...`, so it cannot be the default for
+  a new user. **adsb.lol**, which serves the identical readsb JSON shape and is
+  open to everyone, is the default source; airplanes.live stays selectable with
+  `--source airplanes-live`. The bundled demo fixture was recorded from adsb.lol
+  (60 s at 5 s intervals around Heathrow).
 - **`--demo` ignores the config file's location.** The fixture was recorded
   around one place, so it always uses that observer; otherwise a real config
   made every recorded plane appear far away and below the horizon.

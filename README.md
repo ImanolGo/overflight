@@ -81,6 +81,7 @@ overflight --interval 10       # seconds between updates
 overflight --log ~/flights.csv # log each aircraft when it leaves the sky
 overflight --no-mouse          # leave the mouse for text selection
 overflight --bell              # ring the bell for unusual aircraft
+overflight --source airplanes-live  # for airplanes.live feeders
 overflight --source local --url http://your-pi/data/aircraft.json
 overflight --source opensky    # uses OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET
 ```
@@ -121,7 +122,7 @@ knots and miles.
 
 ## Where the data comes from
 
-By default overflight uses the free [airplanes.live](https://airplanes.live) API, which is run by volunteers who feed ADS-B data from receivers all over the world. It's free for non-commercial use, and overflight stays within its rate limit by asking for an update every few seconds and filling in the gaps by estimating where each plane has moved since. (Some networks block airplanes.live's API; if you see a 403, try `--demo` or one of the other sources.)
+By default overflight uses the free [adsb.lol](https://adsb.lol) API, a community-run network of volunteer ADS-B receivers open to everyone. overflight stays within its rate limit by asking for an update every few seconds and filling in the gaps by estimating where each plane has moved since. (airplanes.live, which overflight used to use by default, now limits its API to people who feed it ADS-B data; if you are a feeder, choose it with `--source airplanes-live`.)
 
 If you have an [OpenSky Network](https://opensky-network.org) account you can use that instead with `--source opensky` and your OAuth2 client credentials (`client_id` and `client_secret`, created on your account page). Put them in the config file or the `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` environment variables; they're never logged. Anonymous OpenSky access has a small daily quota, so it isn't a good fit for something that runs all day.
 

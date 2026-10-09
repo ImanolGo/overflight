@@ -1,12 +1,12 @@
-//! airplanes.live provider.
+//! adsb.lol provider.
 //!
-//! `GET https://api.airplanes.live/v2/point/{lat}/{lon}/{radius_nm}` returns
-//! readsb-style JSON with an `ac` array. The service asks for at most one
-//! request per second, so overflight polls every five seconds by default.
+//! `GET https://api.adsb.lol/v2/point/{lat}/{lon}/{radius_nm}` returns the same
+//! readsb-style JSON as airplanes.live, with an `ac` array, and is open to
+//! everyone. It asks for at most one request per second, so overflight polls
+//! every five seconds by default.
 //!
-//! airplanes.live now limits its API to people who feed it ADS-B data, so a
-//! request from any other network answers `403 Please contact us...`. This is
-//! why the default source is adsb.lol; the provider is kept for feeders.
+//! This is the default source. Verified live on 2026-10-09: `--dump` from a
+//! home connection returned aircraft that moved as expected between polls.
 
 use std::time::Duration;
 
@@ -15,16 +15,16 @@ use reqwest::blocking::Client;
 
 use super::{Aircraft, Provider, Query, Recorder, point};
 
-const BASE_URL: &str = "https://api.airplanes.live";
+const BASE_URL: &str = "https://api.adsb.lol";
 
-/// The airplanes.live point-query provider.
-pub struct AirplanesLive {
+/// The adsb.lol point-query provider.
+pub struct AdsbLol {
     client: Client,
     base_url: String,
     recorder: Option<Recorder>,
 }
 
-impl AirplanesLive {
+impl AdsbLol {
     /// Create the provider against the public API.
     #[must_use]
     pub fn new(client: Client) -> Self {
@@ -43,9 +43,9 @@ impl AirplanesLive {
     }
 }
 
-impl Provider for AirplanesLive {
+impl Provider for AdsbLol {
     fn name(&self) -> &'static str {
-        "airplanes.live"
+        "adsb.lol"
     }
 
     fn min_interval(&self) -> Duration {
@@ -57,8 +57,8 @@ impl Provider for AirplanesLive {
         point::fetch(
             &self.client,
             &url,
-            "airplanes.live",
-            "airplanes.live rate limited",
+            "adsb.lol",
+            "adsb.lol rate limited",
             &mut self.recorder,
         )
     }
