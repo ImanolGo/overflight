@@ -19,8 +19,10 @@ use overflight::providers::opensky::{Credentials, OpenSky};
 use overflight::providers::{self, Aircraft, Provider, Query, Recorder};
 use overflight::{render, sun};
 
-/// Target frame time, about 30 fps.
-const TARGET_FRAME: Duration = Duration::from_millis(33);
+/// Frame time while aircraft are moving: about 30 fps.
+const MOVING_FRAME: Duration = Duration::from_millis(33);
+/// Frame time when the sky is empty; only the sun and status change.
+const IDLE_FRAME: Duration = Duration::from_millis(250);
 
 const LONG_ABOUT: &str = "\
 See the aircraft flying above you as a live sky view.
@@ -188,16 +190,11 @@ fn main() -> Result<()> {
 /// Build the provider and query from the resolved settings.
 fn build_provider(settings: &Settings) -> Result<(Box<dyn Provider>, Query)> {
     if settings.demo {
+        // The fixture was recorded around one fixed place; always use that
+        // observer. Otherwise a config file's lat/lon would put every recorded
+        // aircraft hundreds of kilometres away and below the horizon.
         let fixture = FixtureProvider::embedded()?;
-        let query = match (settings.lat, settings.lon) {
-            (Some(lat), Some(lon)) => Query {
-                lat,
-                lon,
-                radius_km: settings.radius_km,
-            },
-            (None, None) => fixture.query(),
-            _ => bail!("give both --lat and --lon, or neither with --demo"),
-        };
+        let query = fixture.query();
         return Ok((Box::new(fixture), query));
     }
 
@@ -362,7 +359,12 @@ fn event_loop(
         app.update(now_s, utc_s);
         terminal.draw(|frame| render::render(frame, app))?;
 
-        deadline += TARGET_FRAME;
+        let frame_interval = if app.tracks.is_empty() {
+            IDLE_FRAME
+        } else {
+            MOVING_FRAME
+        };
+        deadline += frame_interval;
         let timeout = deadline.saturating_duration_since(Instant::now());
         if event::poll(timeout)?
             && let Event::Key(key) = event::read()?
@@ -468,6 +470,17 @@ mod tests {
             ..FileConfig::default()
         };
         assert!(Settings::resolve(&cli, Some(&file)).is_err());
+    }
+
+    #[test]
+    fn demo_uses_the_fixture_observer_not_the_config() {
+        let cli = Cli::parse_from(["overflight", "--demo"]);
+        let settings = Settings::resolve(&cli, Some(&config())).unwrap();
+        let (provider, query) = build_provider(&settings).unwrap();
+        assert_eq!(provider.name(), "demo");
+        // The fixture was recorded near Heathrow; the config's lat/lon is ignored.
+        assert!((query.lat - 51.47).abs() < 0.01, "lat {}", query.lat);
+        assert!((query.lon + 0.4543).abs() < 0.01, "lon {}", query.lon);
     }
 
     #[test]

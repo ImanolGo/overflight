@@ -10,12 +10,12 @@
 //! straight into the buffer so they land on exact cells.
 
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::canvas::{Canvas, Circle, Points};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::{Block, Paragraph, Wrap};
 
 use crate::app::App;
 use crate::geo;
@@ -361,11 +361,43 @@ pub fn render(frame: &mut Frame, app: &App) {
         }
     }
 
+    if app.tracks.is_empty() {
+        render_no_data(frame, sky_area, app, &palette);
+    }
+
     if let Some(track) = app.selected_track() {
         render_detail(frame, sky_area, track, app, &palette);
     }
 
     frame.render_widget(Paragraph::new(status_line(app)), status_area);
+}
+
+/// A centred hint when there is nothing to draw.
+fn render_no_data(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
+    let mut lines: Vec<Line> = Vec::new();
+    match &app.last_error {
+        Some(error) => {
+            lines.push(Line::from(format!("No aircraft from {}", app.source)));
+            lines.push(Line::from(error.clone()));
+            lines.push(Line::from("Try: overflight --demo"));
+        }
+        None => lines.push(Line::from(format!(
+            "Looking for aircraft from {}…",
+            app.source
+        ))),
+    }
+
+    let height = u16::try_from(lines.len()).unwrap_or(u16::MAX);
+    let y = area.y + area.height.saturating_sub(height) / 2;
+    let message = Paragraph::new(lines)
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true })
+        .style(
+            Style::default()
+                .fg(rgb(palette.compass))
+                .bg(rgb(palette.background)),
+        );
+    frame.render_widget(message, Rect::new(area.x, y, area.width, height));
 }
 
 /// The detail box for the selected aircraft.
@@ -628,6 +660,30 @@ mod tests {
             text.chars().any(|c| ('\u{2800}'..='\u{28ff}').contains(&c)),
             "expected braille dots for the horizon"
         );
+    }
+
+    #[test]
+    fn an_empty_sky_shows_a_hint() {
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let mut app = App::new(
+            crate::providers::Query {
+                lat: 52.52,
+                lon: 13.40,
+                radius_km: 80.0,
+            },
+            "airplanes.live",
+        );
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let waiting = buffer_text(terminal.backend().buffer());
+        assert!(waiting.contains("Looking for aircraft"), "{waiting}");
+
+        app.set_error("airplanes.live returned an error");
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let failed = buffer_text(terminal.backend().buffer());
+        assert!(failed.contains("No aircraft from airplanes.live"));
+        assert!(failed.contains("returned an error"));
+        assert!(failed.contains("--demo"));
     }
 
     #[test]
