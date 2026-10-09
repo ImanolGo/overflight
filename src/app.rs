@@ -76,10 +76,14 @@ pub struct App {
     pub satellites_stale: bool,
     /// Satellite positions for the current time.
     pub satellite_positions: Vec<SatellitePosition>,
+    /// When the satellite positions were last propagated.
+    satellite_positions_at: f64,
     /// Fixed star field for the night sky.
     pub stars: Vec<Star>,
     /// Id of the selected aircraft, if any.
     pub selected: Option<String>,
+    /// Name of the selected satellite, if any.
+    pub selected_satellite: Option<String>,
     /// Latest "unusual aircraft" notification and when it arrived.
     pub notification: Option<(String, f64)>,
     /// Preferred display units.
@@ -110,8 +114,10 @@ impl App {
             satellites_fetched_at: None,
             satellites_stale: false,
             satellite_positions: Vec::new(),
+            satellite_positions_at: f64::NEG_INFINITY,
             stars: generate_stars(),
             selected: None,
+            selected_satellite: None,
             notification: None,
             units: Units::Metric,
             min_elevation_deg: 0.0,
@@ -167,6 +173,8 @@ impl App {
     pub fn set_satellites(&mut self, satellites: Vec<Satellite>, fetched_at: f64) {
         self.satellites = satellites;
         self.satellites_fetched_at = Some(fetched_at);
+        // Force a recomputation with the new elements.
+        self.satellite_positions_at = f64::NEG_INFINITY;
     }
 
     /// Advance every track, recompute the sun, and drop tracks that have gone
@@ -183,18 +191,20 @@ impl App {
         self.satellites_stale = self
             .satellites_fetched_at
             .is_some_and(|fetched_at| satellite::is_stale(fetched_at, utc_s));
-        self.satellite_positions = if self.satellites.is_empty() || self.satellites_stale {
-            Vec::new()
-        } else {
-            match satellite::datetime(utc_s as i64) {
-                Some(time) => self
-                    .satellites
-                    .iter()
-                    .filter_map(|satellite| satellite.position(time, observer))
-                    .collect(),
-                None => Vec::new(),
-            }
-        };
+        if self.satellites.is_empty() || self.satellites_stale {
+            self.satellite_positions.clear();
+        } else if utc_s - self.satellite_positions_at >= 1.0
+            && let Some(naive) = satellite::datetime(utc_s as i64)
+        {
+            // Propagate at most once a second: the positions change slowly.
+            let sun = sky::sun_direction(time);
+            self.satellite_positions = self
+                .satellites
+                .iter()
+                .filter_map(|satellite| satellite.position(naive, observer, sun))
+                .collect();
+            self.satellite_positions_at = utc_s;
+        }
         for track in &mut self.tracks {
             track.update(now_s);
         }
@@ -209,12 +219,8 @@ impl App {
         self.tracks.len()
     }
 
-    /// Select the next aircraft, nearest first, cycling around.
+    /// Select the next aircraft (nearest first) or satellite, cycling around.
     pub fn select_next(&mut self) {
-        if self.tracks.is_empty() {
-            self.selected = None;
-            return;
-        }
         let mut order: Vec<usize> = (0..self.tracks.len()).collect();
         order.sort_by(|&a, &b| {
             self.tracks[a]
@@ -223,12 +229,42 @@ impl App {
                 .partial_cmp(&self.tracks[b].az_el().2)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        let current = self
-            .selected
-            .as_ref()
-            .and_then(|id| order.iter().position(|&index| &self.tracks[index].id == id));
-        let next = current.map_or(0, |position| (position + 1) % order.len());
-        self.selected = Some(self.tracks[order[next]].id.clone());
+        let aircraft: Vec<String> = order
+            .iter()
+            .map(|&index| self.tracks[index].id.clone())
+            .collect();
+        let satellites: Vec<String> = self
+            .satellite_positions
+            .iter()
+            .map(|position| position.name.clone())
+            .collect();
+
+        let total = aircraft.len() + satellites.len();
+        if total == 0 {
+            self.selected = None;
+            self.selected_satellite = None;
+            return;
+        }
+
+        let current = if let Some(name) = &self.selected_satellite {
+            satellites
+                .iter()
+                .position(|candidate| candidate == name)
+                .map(|index| aircraft.len() + index)
+        } else if let Some(id) = &self.selected {
+            aircraft.iter().position(|candidate| candidate == id)
+        } else {
+            None
+        };
+        let next = current.map_or(0, |position| (position + 1) % total);
+
+        if next < aircraft.len() {
+            self.selected = Some(aircraft[next].clone());
+            self.selected_satellite = None;
+        } else {
+            self.selected_satellite = Some(satellites[next - aircraft.len()].clone());
+            self.selected = None;
+        }
     }
 
     /// The currently selected aircraft, if it is still tracked.
@@ -236,6 +272,15 @@ impl App {
     pub fn selected_track(&self) -> Option<&Track> {
         let id = self.selected.as_deref()?;
         self.tracks.iter().find(|track| track.id == id)
+    }
+
+    /// The currently selected satellite, if it is still tracked.
+    #[must_use]
+    pub fn selected_satellite(&self) -> Option<&SatellitePosition> {
+        let name = self.selected_satellite.as_deref()?;
+        self.satellite_positions
+            .iter()
+            .find(|position| position.name == name)
     }
 
     /// The active "unusual aircraft" notification, if one is still fresh.
@@ -330,6 +375,27 @@ mod tests {
         no_altitude.alt_m = None;
         app.apply(&[on_ground, no_altitude], 0.0);
         assert_eq!(app.live_count(), 0);
+    }
+
+    #[test]
+    fn selection_cycles_through_satellites_too() {
+        let mut app = App::new(query(), "test");
+        app.apply(&[observation("a", 52.53, 13.41)], 0.0);
+        app.satellite_positions.push(SatellitePosition {
+            name: "ISS (ZARYA)".to_string(),
+            azimuth_deg: 10.0,
+            elevation_deg: 45.0,
+            altitude_km: 420.0,
+            sunlit: true,
+        });
+
+        app.select_next();
+        assert_eq!(app.selected.as_deref(), Some("a"));
+        app.select_next();
+        assert_eq!(app.selected_satellite.as_deref(), Some("ISS (ZARYA)"));
+        assert!(app.selected_satellite().is_some());
+        app.select_next();
+        assert_eq!(app.selected.as_deref(), Some("a"));
     }
 
     #[test]

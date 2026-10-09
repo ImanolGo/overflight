@@ -84,6 +84,16 @@ pub fn equatorial(body: Body, time: Utc) -> (f64, f64) {
     ecliptic_to_equatorial(longitude, latitude, obliquity)
 }
 
+/// The Sun's unit vector in the equatorial frame, for the satellite shadow
+/// test.
+#[must_use]
+pub fn sun_direction(time: Utc) -> [f64; 3] {
+    let (ra, dec) = equatorial(Body::Sun, time);
+    let ra = ra.to_radians();
+    let dec = dec.to_radians();
+    [dec.cos() * ra.cos(), dec.cos() * ra.sin(), dec.sin()]
+}
+
 /// Reduce an angle to `0..360` degrees.
 fn rev(degrees: f64) -> f64 {
     degrees.rem_euclid(360.0)

@@ -21,6 +21,7 @@ use ratatui::widgets::{Block, Paragraph, Wrap};
 use crate::app::App;
 use crate::geo;
 use crate::providers::AircraftKind;
+use crate::satellite::SatellitePosition;
 use crate::track::Track;
 
 /// Terminal cells are approximately twice as tall as they are wide.
@@ -406,12 +407,16 @@ pub fn render(frame: &mut Frame, app: &App) {
                 app.sky_orientation,
             );
             let (col, row) = geometry.direction_cell(x, y);
-            buffer.set_string(
-                origin_x + col,
-                origin_y + row,
-                "✦",
-                Style::default().fg(rgb(SATELLITE_COLOR)),
-            );
+            let colour = if satellite.sunlit {
+                rgb(SATELLITE_COLOR)
+            } else {
+                dim(SATELLITE_COLOR, 0.3)
+            };
+            let mut style = Style::default().fg(colour);
+            if app.selected_satellite.as_deref() == Some(satellite.name.as_str()) {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+            buffer.set_string(origin_x + col, origin_y + row, "✦", style);
         }
     }
 
@@ -419,7 +424,9 @@ pub fn render(frame: &mut Frame, app: &App) {
         render_no_data(frame, sky_area, app, &palette);
     }
 
-    if let Some(track) = app.selected_track() {
+    if let Some(satellite) = app.selected_satellite() {
+        render_satellite_detail(frame, sky_area, satellite, &palette);
+    } else if let Some(track) = app.selected_track() {
         render_detail(frame, sky_area, track, app, &palette);
     }
 
@@ -526,6 +533,14 @@ fn render_detail(frame: &mut Frame, area: Rect, track: &Track, app: &App, palett
         compass_word(azimuth)
     )));
 
+    render_info_box(frame, area, lines, palette);
+}
+
+/// Draw the bordered detail box, if the area is big enough.
+fn render_info_box(frame: &mut Frame, area: Rect, lines: Vec<Line<'_>>, palette: &Palette) {
+    if area.width < 24 || area.height < 10 {
+        return;
+    }
     let width = 32.min(area.width.saturating_sub(2));
     let height = u16::try_from(lines.len())
         .unwrap_or(u16::MAX)
@@ -536,6 +551,34 @@ fn render_detail(frame: &mut Frame, area: Rect, track: &Track, app: &App, palett
         .bg(rgb(palette.background));
     let block = Block::bordered().title(" Selected ").style(style);
     frame.render_widget(Paragraph::new(lines).block(block).style(style), detail_area);
+}
+
+/// The detail box for the selected satellite.
+fn render_satellite_detail(
+    frame: &mut Frame,
+    area: Rect,
+    satellite: &SatellitePosition,
+    palette: &Palette,
+) {
+    let lines = vec![
+        Line::from(Span::styled(
+            satellite.name.clone(),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from("Satellite"),
+        Line::from(format!("Altitude  {:.0} km", satellite.altitude_km)),
+        Line::from(format!(
+            "Where     {}, {:.0}° up",
+            compass_word(satellite.azimuth_deg),
+            satellite.elevation_deg
+        )),
+        Line::from(if satellite.sunlit {
+            "Status    visible now"
+        } else {
+            "Status    in Earth's shadow"
+        }),
+    ];
+    render_info_box(frame, area, lines, palette);
 }
 
 /// The eight-point compass name for an azimuth.
@@ -706,7 +749,9 @@ fn render_horizon(frame: &mut Frame, area: Rect, app: &App) {
     if app.tracks.is_empty() {
         render_no_data(frame, sky_area, app, &palette);
     }
-    if let Some(track) = app.selected_track() {
+    if let Some(satellite) = app.selected_satellite() {
+        render_satellite_detail(frame, sky_area, satellite, &palette);
+    } else if let Some(track) = app.selected_track() {
         render_detail(frame, sky_area, track, app, &palette);
     }
     if let Some(message) = app.active_notification() {
@@ -1040,6 +1085,23 @@ mod tests {
         assert_eq!(horizon_arrow(&make(90.0, 0.0)), '→');
         // Climbing at the same rate as it travels: points up-right.
         assert_eq!(horizon_arrow(&make(90.0, 100.0)), '↗');
+    }
+
+    #[test]
+    fn satellite_detail_box_renders() {
+        let utc = crate::sun::parse_rfc3339_seconds("2024-06-21T00:00:00Z").unwrap() as f64;
+        let mut app = demo_app(utc);
+        app.selected_satellite = app
+            .satellite_positions
+            .first()
+            .map(|position| position.name.clone());
+        assert!(app.selected_satellite().is_some(), "demo has a satellite");
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 32)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("Satellite"), "{text}");
+        assert!(text.contains("Status"), "{text}");
     }
 
     #[test]

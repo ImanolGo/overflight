@@ -46,6 +46,29 @@ pub struct SatellitePosition {
     pub azimuth_deg: f64,
     pub elevation_deg: f64,
     pub altitude_km: f64,
+    /// Whether the satellite is in sunlight (and so possibly visible).
+    pub sunlit: bool,
+}
+
+/// Earth's mean radius, in kilometres, for the shadow test.
+const EARTH_RADIUS_KM: f64 = 6_371.0;
+
+/// Whether a position is in sunlight, using a cylindrical Earth-shadow model.
+///
+/// `position_km` and `sun` must be in the same frame; `sun` is the unit vector
+/// towards the Sun.
+#[must_use]
+pub fn is_sunlit(position_km: [f64; 3], sun: [f64; 3]) -> bool {
+    let along = position_km[0] * sun[0] + position_km[1] * sun[1] + position_km[2] * sun[2];
+    if along >= 0.0 {
+        // On the Sun's side of the Earth: always lit.
+        return true;
+    }
+    let radius_sq = position_km[0] * position_km[0]
+        + position_km[1] * position_km[1]
+        + position_km[2] * position_km[2];
+    let perpendicular_sq = radius_sq - along * along;
+    perpendicular_sq > EARTH_RADIUS_KM * EARTH_RADIUS_KM
 }
 
 impl Satellite {
@@ -63,11 +86,21 @@ impl Satellite {
     }
 
     /// Propagate to `time` and locate the satellite from `observer`.
+    ///
+    /// `sun` is the Sun's unit vector in the equatorial frame, used to tell
+    /// whether the satellite is in sunlight.
     #[must_use]
-    pub fn position(&self, time: NaiveDateTime, observer: GeoPoint) -> Option<SatellitePosition> {
+    pub fn position(
+        &self,
+        time: NaiveDateTime,
+        observer: GeoPoint,
+        sun: [f64; 3],
+    ) -> Option<SatellitePosition> {
         let minutes = self.elements.datetime_to_minutes_since_epoch(&time).ok()?;
         let prediction = self.constants.propagate(minutes).ok()?;
-        let [x, y, z] = prediction.position; // km, TEME
+        let teme = prediction.position; // km, TEME
+        let sunlit = is_sunlit(teme, sun);
+        let [x, y, z] = teme;
 
         // TEME -> ECEF, via Greenwich mean sidereal time.
         let julian_day = time.and_utc().timestamp() as f64 / 86_400.0 + 2_440_587.5;
@@ -86,7 +119,8 @@ impl Satellite {
             name: self.name.clone(),
             azimuth_deg: east.atan2(north).to_degrees().rem_euclid(360.0),
             elevation_deg: up.atan2(ground).to_degrees(),
-            altitude_km: radius / 1000.0 - 6_371.0,
+            altitude_km: radius / 1000.0 - EARTH_RADIUS_KM,
+            sunlit,
         })
     }
 }
@@ -323,7 +357,7 @@ mod tests {
         let observer = GeoPoint::new(51.47, -0.4543, 0.0);
         let epoch = iss.elements.datetime;
 
-        let first = iss.position(epoch, observer).unwrap();
+        let first = iss.position(epoch, observer, [1.0, 0.0, 0.0]).unwrap();
         assert!(
             (300.0..500.0).contains(&first.altitude_km),
             "ISS altitude {} km",
@@ -332,7 +366,7 @@ mod tests {
 
         // Half an orbit later it should have moved substantially across the sky.
         let later = iss
-            .position(epoch + Duration::minutes(46), observer)
+            .position(epoch + Duration::minutes(46), observer, [1.0, 0.0, 0.0])
             .unwrap();
         let moved = (later.azimuth_deg - first.azimuth_deg)
             .rem_euclid(360.0)
@@ -347,7 +381,7 @@ mod tests {
         let observer = GeoPoint::new(0.0, 0.0, 0.0);
         // Ten years from the epoch: SGP4 may refuse, which is fine.
         let far = iss.elements.datetime + Duration::days(3650);
-        let _ = iss.position(far, observer);
+        let _ = iss.position(far, observer, [1.0, 0.0, 0.0]);
     }
 
     const SAMPLE: &str = include_str!("../fixtures/satellites.tle");
@@ -446,5 +480,16 @@ mod tests {
     fn stale_data_is_flagged() {
         assert!(!is_stale(0.0, MAX_AGE_S));
         assert!(is_stale(0.0, MAX_AGE_S + 1.0));
+    }
+
+    #[test]
+    fn the_shadow_test_follows_the_sun() {
+        let sun = [1.0_f64, 0.0, 0.0];
+        // On the Sun's side of the Earth.
+        assert!(is_sunlit([7000.0, 0.0, 0.0], sun));
+        // Directly behind the Earth.
+        assert!(!is_sunlit([-7000.0, 0.0, 0.0], sun));
+        // Behind, but far enough off-axis to clear the shadow.
+        assert!(is_sunlit([-7000.0, 8000.0, 0.0], sun));
     }
 }
