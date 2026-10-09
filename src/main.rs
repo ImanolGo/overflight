@@ -32,13 +32,15 @@ See the aircraft flying above you as a live sky view.
 Tell overflight where you are with --lat/--lon or a config file, and it draws \
 the planes overhead: the centre of the circle is straight up, the edge is the \
 horizon, and each plane drifts across in real time with its callsign trailing \
-behind. The sky is blue by day, fades at dusk, and shows stars at night.";
+behind. The sky is blue by day, fades at dusk, and at night shows the real \
+stars and constellations, the Moon, the bright planets and passing satellites.";
 
 const AFTER_HELP: &str = "\
 Examples:
   overflight --lat 52.52 --lon 13.40
   overflight --demo
   overflight --source local --url http://your-pi/data/aircraft.json
+  overflight --log ~/flights.csv --bell
   overflight --screensaver --demo
 
 Configuration:
@@ -46,12 +48,19 @@ Configuration:
   (~/.config/overflight/config.toml on Linux). Command-line flags win.
 
 Keys while running:
-  q / Esc   quit
-  Tab       select the next aircraft
-  l         show or hide callsigns
-  t         show or hide trails
-  m         switch sky/map orientation
-  u         switch metric/imperial units";
+  q / Esc        quit
+  Tab            select the next aircraft or satellite and show its details
+  l / t          show or hide callsigns / trails
+  m              switch between sky and map orientation
+  h              side-on horizon view; Left/Right turn it
+  c              show or hide constellation lines
+  u              switch between metric and imperial
+  click          select the nearest aircraft or satellite (--no-mouse to disable)
+
+The status line shows how many aircraft are in range, the next aircraft due \
+overhead, and the next visible ISS pass at twilight. Military aircraft, \
+emergency squawks and rare types are highlighted, and --bell can ring for \
+them. When there is a network, the selected aircraft's route is looked up.";
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum SourceArg {
@@ -758,6 +767,10 @@ mod tests {
         assert_eq!(app.units, Units::Imperial);
         assert!(!handle_key(&mut app, KeyCode::Tab));
         assert_eq!(app.selected, None);
+        assert!(!handle_key(&mut app, KeyCode::Right));
+        assert_eq!(app.view_azimuth_deg, 45.0);
+        assert!(!handle_key(&mut app, KeyCode::Left));
+        assert_eq!(app.view_azimuth_deg, 0.0);
         assert!(handle_key(&mut app, KeyCode::Esc));
     }
 }

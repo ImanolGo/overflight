@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-09
+
+### Added
+
+- Coming-overhead prediction: the status line shows the next aircraft due
+  overhead and when ("DLH4AB will pass 72 deg up in 1:40").
+- The real night sky, from the public-domain Yale Bright Star Catalogue, with
+  constellation lines toggled by `c`.
+- A spotter's logbook (`--log file.csv`): one row per aircraft as it leaves.
+- Route lookup (origin to destination) for the selected aircraft via adsbdb.
+- ISS pass alerts: the next visible pass is shown at twilight and announced
+  when it starts.
+- Click an aircraft or satellite to select it (`--no-mouse` disables this).
+- An opt-in terminal bell for unusual aircraft (`--bell`).
+
+[0.4.0]: https://github.com/ImanolGo/overflight/releases/tag/v0.4.0
+
 ## [0.3.0] - 2026-10-09
 
 ### Added

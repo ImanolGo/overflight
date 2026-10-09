@@ -25,8 +25,10 @@ It's a screensaver, mostly. But it's also the quickest way to answer "what was t
 - Like a star chart, east and west are swapped compared to a map. That's what the sky looks like when you face up with north at the top of your head. Press `m` if you'd rather have it the map way round.
 - Helicopters, gliders and balloons are drawn with their own symbol rather than a heading arrow. Military aircraft, emergency squawks and a few rare types are highlighted, with a banner when one appears.
 - The Moon is drawn whenever it is above the horizon, even in daylight; the bright planets appear at twilight and night, and satellites — including the ISS — drift across as slow-moving dots.
+- At night the sky is the real one: the brightest stars, with a few constellations you can join up with `c`, turning as the Earth does.
 
-Press `h` for a side-on view instead: a skyline looking north, with planes rising over it.
+Press `h` for a side-on view instead: a skyline with planes rising over it.
+`←`/`→` turn it, and the edges count the aircraft just out of view.
 
 The horizon, rings and trails are drawn with Braille characters, which virtually
 every terminal font includes.
@@ -88,7 +90,7 @@ Keys while it's running:
 | Key | Does |
 | --- | --- |
 | `q` / `Esc` | Quit |
-| `Tab` | Cycle through aircraft and show details |
+| `Tab` | Select the next aircraft or satellite and show details |
 | `l` | Show or hide callsigns |
 | `t` | Show or hide trails |
 | `m` | Switch between sky view and map orientation |
@@ -106,6 +108,14 @@ aircraft type, altitude, ground speed, distance from you, and where to look
 (origin → destination) from [adsbdb](https://www.adsbdb.com/); this is off in
 `--demo`.
 
+The status line along the bottom tells you the data source and how many
+aircraft are in range, the next aircraft due overhead ("DLH4AB will pass 72° up
+in 1:40"), and — at twilight — the next visible ISS pass. It also warns when
+the satellite data is out of date.
+
+`--log file.csv` keeps a spotter's logbook: one row per aircraft when it leaves
+the sky. `--bell` rings the terminal bell when an unusual aircraft appears.
+
 `units = "metric"` shows metres, km/h and kilometres; `"imperial"` shows feet,
 knots and miles.
 
@@ -117,7 +127,7 @@ If you have an [OpenSky Network](https://opensky-network.org) account you can us
 
 If you run your own ADS-B receiver (a Raspberry Pi with a cheap SDR dongle and readsb or dump1090), point overflight at it with `--source local --url http://your-pi/data/aircraft.json`. That's the nicest setup: no rate limits, no internet needed, and you see exactly what your antenna sees.
 
-Satellites come from Two-Line Elements: overflight fetches the current set from [Celestrak](https://celestrak.org) (the `stations` group, which includes the ISS) and propagates them with SGP4. The Moon and the bright planets are computed locally, with no network needed.
+Satellites come from Two-Line Elements: overflight fetches the current set from [Celestrak](https://celestrak.org) (the `stations` group, which includes the ISS), caches it, and refetches at most every 12 hours; positions are propagated with SGP4. The night sky's stars come from the public-domain Yale Bright Star Catalogue, and the Moon and planets are computed locally — all with no network needed.
 
 `overflight --demo` replays a minute of recorded traffic (captured around Heathrow) from the bundled fixture, so you can try it with no receiver and no network at all. It also uses a recorded set of TLEs.
 
@@ -125,11 +135,11 @@ Coverage depends on volunteer receivers, so some areas, especially rural ones an
 
 ## Privacy
 
-Your coordinates are only ever sent to the data source you pick, as part of the request for nearby aircraft. They're not logged or sent anywhere else. If you share screenshots, remember that the planes around you give a fair idea of where you live.
+Your coordinates are only ever sent to the data source you pick, as part of the request for nearby aircraft. They're not logged or sent anywhere else. When a network is available and you select an aircraft, its callsign (not your location) is sent to [adsbdb](https://www.adsbdb.com/) to look up its route; turn this off with `--demo` (or just don't select anything). If you share screenshots, remember that the planes around you give a fair idea of where you live.
 
 ## Contributing
 
-Issues and pull requests are welcome. Ideas I'd love help with: satellites (the ISS passing over would look great), helicopters drawn differently from airliners, and a sound when something interesting flies over.
+Issues and pull requests are welcome. Ideas I'd love help with: drawing satellite passes as a trail across the sky, showing terrain in map mode, recording and replaying your own ADS-B traffic, and a richer sound than the bell when something interesting flies over.
 
 ## License
 

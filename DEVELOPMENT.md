@@ -73,6 +73,21 @@ The ideas PLAN.md listed for after 0.1 were built, one commit each:
 - **Horizon mode.** `h` switches to a side-on view looking north, with a
   skyline and planes rising over it.
 
+A later pass (0.3.0 and the 0.4.0 features) added:
+
+- **Bug fixes from review.** Quitting no longer hangs; TLEs are cached with
+  12-hour refresh and a 24-hour backoff; the observer's altitude is used;
+  location/radius are validated; rate limits are honoured; labels no longer
+  flicker or overlap; rare types are corrected.
+- **Real stars.** `sky.rs` embeds an extract of the Yale Bright Star Catalogue
+  and converts it with the same `horizontal()`; `c` toggles constellation lines.
+- **Coming-overhead prediction.** `Track::next_peak` dead-reckons five minutes
+  ahead and the status line shows the best pass.
+- **ISS pass alerts.** `satellite::next_visible_pass` finds the next pass that
+  is sunlit with a dark sky; shown at twilight and announced when it starts.
+- **Spotter's logbook** (`--log`), **route lookup** (adsbdb), **click to
+  select** (`--no-mouse`), and an opt-in **bell** (`--bell`).
+
 ## Releasing
 
 A release is just a version tag:

@@ -3,9 +3,9 @@
 #   cargo build --release
 #   vhs demo.tape
 #
-# It uses --demo, so it replays recorded traffic (and TLEs) around a busy
-# airport and never shows anyone's real location. --time pins a night so the
-# Moon, planets and satellites are visible.
+# It uses --demo, so it replays recorded traffic and TLEs and never shows
+# anyone's real location. --time pins a night so the real stars, the
+# constellation lines and the Moon are visible.
 
 Output demo.gif
 
@@ -21,12 +21,16 @@ Set Theme "Catppuccin Mocha"
 Type "./target/release/overflight --demo --time 2024-12-21T00:00:00Z"
 Enter
 
-Sleep 6s
-Type "h"
 Sleep 5s
-Type "h"
-Sleep 3s
-Tab
+Type "c"
 Sleep 4s
+Type "c"
+Sleep 1s
+Tab
+Sleep 3s
+Type "h"
+Sleep 2s
+Right
+Sleep 3s
 Type "q"
 Sleep 1s
