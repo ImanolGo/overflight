@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-10-09
+
+### Added
+
+- Release automation: cargo-dist builds Linux/macOS/Windows archives and
+  shell/PowerShell/MSI installers and creates the GitHub Release; a Debian
+  package is attached; and the crate publishes to crates.io through Trusted
+  Publishing.
+- A pinned MSRV CI job, README badges, and `DEVELOPMENT.md`.
+
+### Fixed
+
+- `--demo` ignores the config file's location, so a real config no longer makes
+  every recorded aircraft appear far away and below the horizon.
+- An empty or failed sky now shows a centred hint instead of a bare sky.
+
+[0.1.1]: https://github.com/ImanolGo/overflight/releases/tag/v0.1.1
+
 ## [0.1.0] - 2026-10-09
 
 The first release. A live, overhead view of the aircraft above you.
