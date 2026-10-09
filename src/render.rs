@@ -351,37 +351,11 @@ pub fn render(frame: &mut Frame, app: &App) {
         );
     }
 
-    for track in &app.tracks {
-        let (azimuth, elevation, _) = track.az_el();
-        if elevation < 0.0 {
-            continue;
-        }
-        let (x, y) = geo::project(azimuth, elevation, app.sky_orientation);
-        let (col, row) = geometry.direction_cell(x, y);
-        let alpha = track.alpha(app.now_s);
-        let colour = if track.unusual.is_some() {
-            alert_color(alpha)
-        } else {
-            altitude_color(track.alt_m, alpha)
-        };
-        let mut style = Style::default().fg(colour);
-        if app.selected.as_deref() == Some(track.id.as_str()) {
-            style = style.add_modifier(Modifier::BOLD);
-        }
-        let glyph = aircraft_glyph(track, app.sky_orientation);
-        buffer.set_string(origin_x + col, origin_y + row, glyph.to_string(), style);
-        if app.show_callsigns {
-            buffer.set_string(
-                origin_x + col + 2,
-                origin_y + row,
-                aircraft_label(track),
-                style,
-            );
-        }
-    }
+    let mut taken = vec![false; usize::from(sky_area.width) * usize::from(sky_area.height)];
+    let mut labels: Vec<(u16, u16, String, Style, bool)> = Vec::new();
 
-    // The Moon, bright planets and satellites, drawn on top so a plane label
-    // cannot hide them.
+    // The Moon, bright planets and satellites first, so plane labels can avoid
+    // them.
     if palette.kind != SkyKind::Day {
         for body in &app.bodies {
             if body.elevation_deg < 0.0 {
@@ -395,6 +369,7 @@ pub fn render(frame: &mut Frame, app: &App) {
                 body.body.glyph().to_string(),
                 Style::default().fg(rgb(BODY_COLOR)),
             );
+            mark_cell(&mut taken, sky_area.width, col, row);
         }
 
         for satellite in &app.satellite_positions {
@@ -417,8 +392,46 @@ pub fn render(frame: &mut Frame, app: &App) {
                 style = style.add_modifier(Modifier::BOLD);
             }
             buffer.set_string(origin_x + col, origin_y + row, "✦", style);
+            mark_cell(&mut taken, sky_area.width, col, row);
         }
     }
+
+    // Arrows first, then labels, so labels can avoid every arrow and each
+    // other.
+    for track in &app.tracks {
+        let (azimuth, elevation, _) = track.az_el();
+        if elevation < 0.0 {
+            continue;
+        }
+        let (x, y) = geo::project(azimuth, elevation, app.sky_orientation);
+        let (col, row) = geometry.direction_cell(x, y);
+        let alpha = track.alpha(app.now_s);
+        let colour = if track.unusual.is_some() {
+            alert_color(alpha)
+        } else {
+            altitude_color(track.alt_m, alpha)
+        };
+        let selected = app.selected.as_deref() == Some(track.id.as_str());
+        let mut style = Style::default().fg(colour);
+        if selected {
+            style = style.add_modifier(Modifier::BOLD);
+        }
+        let glyph = aircraft_glyph(track, app.sky_orientation);
+        buffer.set_string(origin_x + col, origin_y + row, glyph.to_string(), style);
+        mark_cell(&mut taken, sky_area.width, col, row);
+        if app.show_callsigns {
+            labels.push((col, row, aircraft_label(track), style, selected));
+        }
+    }
+
+    place_labels(
+        buffer,
+        (origin_x, origin_y),
+        sky_area.width,
+        sky_area.height,
+        &mut taken,
+        &labels,
+    );
 
     if app.tracks.is_empty() {
         render_no_data(frame, sky_area, app, &palette);
@@ -663,6 +676,69 @@ fn aircraft_label(track: &crate::track::Track) -> String {
     label
 }
 
+/// Mark a single cell as occupied, if it is inside the area.
+fn mark_cell(taken: &mut [bool], width: u16, col: u16, row: u16) {
+    let index = usize::from(row) * usize::from(width) + usize::from(col);
+    if let Some(cell) = taken.get_mut(index) {
+        *cell = true;
+    }
+}
+
+/// Draw callsign labels, avoiding cells that are already taken.
+///
+/// Each entry is the arrow's cell, the label, its style, and whether it belongs
+/// to the selected aircraft. Tries the right of the arrow, then the left, then
+/// a row up or down; the selected aircraft is drawn regardless.
+fn place_labels(
+    buffer: &mut Buffer,
+    origin: (u16, u16),
+    width: u16,
+    height: u16,
+    taken: &mut [bool],
+    entries: &[(u16, u16, String, Style, bool)],
+) {
+    let free = |taken: &[bool], x: u16, y: u16, len: u16| -> bool {
+        if y >= height || x.saturating_add(len) > width {
+            return false;
+        }
+        (x..x + len).all(|cx| {
+            let index = usize::from(y) * usize::from(width) + usize::from(cx);
+            !taken[index]
+        })
+    };
+
+    for (col, row, label, style, selected) in entries {
+        let (col, row) = (*col, *row);
+        let len = u16::try_from(label.chars().count()).unwrap_or(u16::MAX);
+        if len == 0 {
+            continue;
+        }
+        let candidates = [
+            (col.saturating_add(2), row),
+            (col.saturating_sub(len.saturating_add(1)), row),
+            (col.saturating_add(2), row.saturating_sub(1)),
+            (col.saturating_add(2), row.saturating_add(1)),
+        ];
+        let placed = candidates
+            .iter()
+            .copied()
+            .find(|&(x, y)| free(taken, x, y, len))
+            .or_else(|| selected.then_some((col.saturating_add(2), row)));
+
+        if let Some((x, y)) = placed {
+            buffer.set_string(origin.0 + x, origin.1 + y, label, *style);
+            if y < height {
+                for cx in x..x.saturating_add(len) {
+                    if cx < width {
+                        let index = usize::from(y) * usize::from(width) + usize::from(cx);
+                        taken[index] = true;
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The bottom status line.
 fn status_line(app: &App) -> Line<'static> {
     let base = Style::default().fg(Color::DarkGray);
@@ -709,6 +785,8 @@ fn render_horizon(frame: &mut Frame, area: Rect, app: &App) {
 
         let mut left = 0usize;
         let mut right = 0usize;
+        let mut taken = vec![false; usize::from(sky_area.width) * usize::from(sky_area.height)];
+        let mut labels: Vec<(u16, u16, String, Style, bool)> = Vec::new();
 
         for track in &app.tracks {
             let (azimuth, elevation, _) = track.az_el();
@@ -737,8 +815,9 @@ fn render_horizon(frame: &mut Frame, area: Rect, app: &App) {
             } else {
                 altitude_color(track.alt_m, alpha)
             };
+            let selected = app.selected.as_deref() == Some(track.id.as_str());
             let mut style = Style::default().fg(colour);
-            if app.selected.as_deref() == Some(track.id.as_str()) {
+            if selected {
                 style = style.add_modifier(Modifier::BOLD);
             }
             buffer.set_string(
@@ -747,15 +826,20 @@ fn render_horizon(frame: &mut Frame, area: Rect, app: &App) {
                 horizon_arrow(track, view).to_string(),
                 style,
             );
+            mark_cell(&mut taken, sky_area.width, col, row);
             if app.show_callsigns {
-                buffer.set_string(
-                    origin_x + col + 2,
-                    origin_y + row,
-                    aircraft_label(track),
-                    style,
-                );
+                labels.push((col, row, aircraft_label(track), style, selected));
             }
         }
+
+        place_labels(
+            buffer,
+            (origin_x, origin_y),
+            sky_area.width,
+            sky_area.height,
+            &mut taken,
+            &labels,
+        );
 
         let edge_style = Style::default().fg(rgb(palette.compass));
         buffer.set_string(
@@ -1080,6 +1164,25 @@ mod tests {
         app.update(5.0, utc);
         app.update(5.6, utc);
         app
+    }
+
+    #[test]
+    fn place_labels_avoids_collisions() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 40, 10));
+        let style = Style::default();
+        let mut taken = vec![false; 40 * 10];
+        let entries = vec![
+            (5_u16, 5_u16, "AAA".to_string(), style, false),
+            (5_u16, 5_u16, "BBB".to_string(), style, false),
+        ];
+        place_labels(&mut buffer, (0, 0), 40, 10, &mut taken, &entries);
+
+        let text: String = (0..10)
+            .flat_map(|y| (0..40).map(move |x| (x, y)))
+            .map(|(x, y)| buffer[(x, y)].symbol())
+            .collect();
+        assert!(text.contains("AAA"), "{text}");
+        assert!(text.contains("BBB"), "{text}");
     }
 
     #[test]
