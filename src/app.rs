@@ -90,6 +90,8 @@ pub struct App {
     pub notification: Option<(String, f64)>,
     /// Preferred display units.
     pub units: Units,
+    /// Extra rare type codes from the config, on top of the built-in ones.
+    pub rare_types: Vec<String>,
     /// Ignore aircraft whose elevation is below this, degrees.
     pub min_elevation_deg: f64,
 }
@@ -123,6 +125,7 @@ impl App {
             selected_satellite: None,
             notification: None,
             units: Units::Metric,
+            rare_types: Vec::new(),
             min_elevation_deg: 0.0,
         }
     }
@@ -140,15 +143,24 @@ impl App {
             if self.elevation_deg(observation) < self.min_elevation_deg {
                 continue;
             }
+            let unusual = observation.unusual_reason().or_else(|| {
+                let extra = observation
+                    .type_code
+                    .as_deref()
+                    .is_some_and(|code| self.rare_types.iter().any(|rare| rare == code));
+                extra.then_some("rare type")
+            });
             if let Some(track) = self
                 .tracks
                 .iter_mut()
                 .find(|track| track.id == observation.id)
             {
                 track.apply(observation, observer, now_s);
+                track.unusual = unusual;
             } else {
-                let track = Track::new(observation, observer, now_s);
-                if let Some(reason) = track.unusual {
+                let mut track = Track::new(observation, observer, now_s);
+                track.unusual = unusual;
+                if let Some(reason) = unusual {
                     self.notification = Some((format!("{} · {reason}", track.label()), now_s));
                 }
                 self.tracks.push(track);
@@ -378,6 +390,17 @@ mod tests {
         no_altitude.alt_m = None;
         app.apply(&[on_ground, no_altitude], 0.0);
         assert_eq!(app.live_count(), 0);
+    }
+
+    #[test]
+    fn config_rare_types_are_flagged() {
+        let mut app = App::new(query(), "test");
+        app.rare_types = vec!["ZZZZ".to_string()];
+        let mut observation = observation("rare", 52.6, 13.5);
+        observation.type_code = Some("ZZZZ".to_string());
+        app.apply(&[observation], 0.0);
+        assert!(app.active_notification().is_some());
+        assert_eq!(app.tracks[0].unusual, Some("rare type"));
     }
 
     #[test]

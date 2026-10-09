@@ -252,7 +252,7 @@ mod tests {
         assert_eq!(military.unusual_reason(), Some("military"));
 
         let rare = only(json!({
-            "ac": [{ "hex": "rare123", "lat": 1.0, "lon": 2.0, "t": "A388" }]
+            "ac": [{ "hex": "rare123", "lat": 1.0, "lon": 2.0, "t": "A400" }]
         }));
         assert_eq!(rare.unusual_reason(), Some("rare type"));
 

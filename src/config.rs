@@ -73,6 +73,8 @@ pub struct FileConfig {
     pub url: Option<String>,
     /// Celestrak group for satellites.
     pub tle_group: Option<String>,
+    /// Extra rare type codes to highlight.
+    pub rare_types: Option<Vec<String>>,
     /// OpenSky client id, if using `source = "opensky"`.
     pub opensky_client_id: Option<String>,
     /// OpenSky client secret, if using `source = "opensky"`.

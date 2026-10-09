@@ -147,8 +147,8 @@ impl Aircraft {
 
 /// Type codes rare enough to be worth a nod.
 fn is_rare_type(type_code: Option<&str>) -> bool {
-    const RARE: [&str; 8] = [
-        "A388", "B748", "A225", "AN124", "C5M", "B52H", "CONC", "A124",
+    const RARE: [&str; 10] = [
+        "A124", "A388", "B748", "C5M", "B52H", "A400", "V22", "C17", "BLCF", "A3ST",
     ];
     type_code.is_some_and(|code| RARE.contains(&code))
 }

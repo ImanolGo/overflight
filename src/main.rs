@@ -144,6 +144,7 @@ struct Settings {
     record: Option<PathBuf>,
     time: Option<String>,
     tle_group: String,
+    rare_types: Vec<String>,
     screensaver: bool,
 }
 
@@ -225,6 +226,9 @@ impl Settings {
                 .clone()
                 .or_else(|| file.and_then(|config| config.tle_group.clone()))
                 .unwrap_or_else(|| satellite::DEFAULT_GROUP.to_string()),
+            rare_types: file
+                .and_then(|config| config.rare_types.clone())
+                .unwrap_or_default(),
             screensaver: cli.screensaver,
         })
     }
@@ -391,6 +395,7 @@ fn run_live(settings: &Settings) -> Result<()> {
     let mut app = App::new(query, source);
     app.units = settings.units;
     app.min_elevation_deg = settings.min_elevation;
+    app.rare_types = settings.rare_types.clone();
     if settings.demo {
         // Embedded TLEs are only for the offline demo; live mode uses the
         // cache, refreshed from Celestrak.

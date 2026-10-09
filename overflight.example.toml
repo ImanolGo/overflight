@@ -42,3 +42,7 @@ min_elevation = 0
 # Celestrak group to draw satellites from (default "stations", which includes
 # the ISS). Set to a different group for more satellites.
 # tle_group = "stations"
+
+# Extra ICAO type codes to treat as rare and highlight. The built-in list is
+# A124, A388, B748, C5M, B52H, A400, V22, C17, BLCF and A3ST.
+# rare_types = ["R44", "C130"]
