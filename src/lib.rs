@@ -5,6 +5,7 @@
 //! around them.
 
 pub mod app;
+pub mod config;
 pub mod fetcher;
 pub mod geo;
 pub mod providers;

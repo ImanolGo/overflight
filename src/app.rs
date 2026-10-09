@@ -4,6 +4,8 @@
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+use crate::config::Units;
+use crate::geo::{self, GeoPoint};
 use crate::providers::{Aircraft, Query};
 use crate::sun::{self, Utc};
 use crate::track::Track;
@@ -62,6 +64,12 @@ pub struct App {
     pub sun_elevation_deg: f64,
     /// Fixed star field for the night sky.
     pub stars: Vec<Star>,
+    /// Id of the selected aircraft, if any.
+    pub selected: Option<String>,
+    /// Preferred display units.
+    pub units: Units,
+    /// Ignore aircraft whose elevation is below this, degrees.
+    pub min_elevation_deg: f64,
 }
 
 impl App {
@@ -81,13 +89,20 @@ impl App {
             utc_s: 0.0,
             sun_elevation_deg: 90.0,
             stars: generate_stars(),
+            selected: None,
+            units: Units::Metric,
+            min_elevation_deg: 0.0,
         }
     }
 
-    /// Merge a fresh batch of observations into the tracked set.
+    /// Merge a fresh batch of observations into the tracked set, ignoring any
+    /// below the minimum elevation.
     pub fn apply(&mut self, aircraft: &[Aircraft], now_s: f64) {
         let observer = self.query.observer();
         for observation in aircraft {
+            if self.elevation_deg(observation) < self.min_elevation_deg {
+                continue;
+            }
             if let Some(track) = self
                 .tracks
                 .iter_mut()
@@ -102,13 +117,23 @@ impl App {
         self.last_error = None;
     }
 
+    fn elevation_deg(&self, observation: &Aircraft) -> f64 {
+        let target = GeoPoint::new(
+            observation.lat,
+            observation.lon,
+            observation.alt_m.unwrap_or(0.0),
+        );
+        geo::az_el(self.query.observer(), target).elevation_deg
+    }
+
     /// Record a fetch failure to show in the status line.
     pub fn set_error(&mut self, message: impl Into<String>) {
         self.last_error = Some(message.into());
     }
 
     /// Advance every track, recompute the sun, and drop tracks that have gone
-    /// quiet. `now_s` is seconds since start; `utc_s` is the wall-clock time.
+    /// quiet or fallen below the minimum elevation. `now_s` is seconds since
+    /// start; `utc_s` is the wall-clock time.
     pub fn update(&mut self, now_s: f64, utc_s: f64) {
         self.now_s = now_s;
         self.utc_s = utc_s;
@@ -120,13 +145,44 @@ impl App {
         for track in &mut self.tracks {
             track.update(now_s);
         }
-        self.tracks.retain(|track| !track.stale(now_s));
+        let min_elevation = self.min_elevation_deg;
+        self.tracks
+            .retain(|track| !track.stale(now_s) && track.az_el().1 >= min_elevation);
     }
 
     /// Number of aircraft currently tracked.
     #[must_use]
     pub fn live_count(&self) -> usize {
         self.tracks.len()
+    }
+
+    /// Select the next aircraft, nearest first, cycling around.
+    pub fn select_next(&mut self) {
+        if self.tracks.is_empty() {
+            self.selected = None;
+            return;
+        }
+        let mut order: Vec<usize> = (0..self.tracks.len()).collect();
+        order.sort_by(|&a, &b| {
+            self.tracks[a]
+                .az_el()
+                .2
+                .partial_cmp(&self.tracks[b].az_el().2)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let current = self
+            .selected
+            .as_ref()
+            .and_then(|id| order.iter().position(|&index| &self.tracks[index].id == id));
+        let next = current.map_or(0, |position| (position + 1) % order.len());
+        self.selected = Some(self.tracks[order[next]].id.clone());
+    }
+
+    /// The currently selected aircraft, if it is still tracked.
+    #[must_use]
+    pub fn selected_track(&self) -> Option<&Track> {
+        let id = self.selected.as_deref()?;
+        self.tracks.iter().find(|track| track.id == id)
     }
 }
 
@@ -199,6 +255,41 @@ mod tests {
         let first: Vec<f64> = app.stars.iter().map(|star| star.east).collect();
         let second: Vec<f64> = again.stars.iter().map(|star| star.east).collect();
         assert_eq!(first, second, "star field must be deterministic");
+    }
+
+    #[test]
+    fn min_elevation_filters_low_aircraft() {
+        let mut app = App::new(query(), "test");
+        app.min_elevation_deg = 80.0;
+        // Directly overhead passes; a distant aircraft is low on the horizon.
+        app.apply(
+            &[
+                observation("high", 52.52, 13.40),
+                observation("low", 52.9, 13.9),
+            ],
+            0.0,
+        );
+        assert_eq!(app.live_count(), 1);
+        assert_eq!(app.tracks[0].id, "high");
+    }
+
+    #[test]
+    fn selection_cycles_nearest_first() {
+        let mut app = App::new(query(), "test");
+        app.apply(
+            &[
+                observation("far", 52.9, 13.9),
+                observation("near", 52.53, 13.41),
+            ],
+            0.0,
+        );
+        app.select_next();
+        assert_eq!(app.selected.as_deref(), Some("near"));
+        app.select_next();
+        assert_eq!(app.selected.as_deref(), Some("far"));
+        app.select_next();
+        assert_eq!(app.selected.as_deref(), Some("near"));
+        assert!(app.selected_track().is_some());
     }
 
     #[test]

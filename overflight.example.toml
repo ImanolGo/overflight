@@ -1,0 +1,36 @@
+# Example overflight configuration.
+#
+# Copy this file to your config directory as config.toml:
+#
+#   Linux:   ~/.config/overflight/config.toml
+#   macOS:   ~/Library/Application Support/overflight/config.toml
+#   Windows: %APPDATA%\overflight\config.toml
+#
+# Command-line flags always override anything set here.
+
+# Where you are, in decimal degrees. Required unless you pass --lat/--lon.
+lat = 52.52
+lon = 13.40
+
+# How far out to look, in kilometres.
+radius_km = 80
+
+# "metric" (metres, km/h, km) or "imperial" (feet, knots, miles).
+units = "metric"
+
+# Ignore aircraft below this elevation, in degrees.
+min_elevation = 0
+
+# Seconds between updates. The source's own minimum always applies.
+# interval = 5
+
+# Data source: "airplanes-live" (default), "local" or "opensky".
+# source = "airplanes-live"
+
+# Required with source = "local": your receiver's aircraft.json URL.
+# url = "http://your-pi/data/aircraft.json"
+
+# Only needed with source = "opensky". Keep these secret; command-line
+# environment variables OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET work too.
+# opensky_client_id = "..."
+# opensky_client_secret = "..."

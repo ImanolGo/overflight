@@ -11,14 +11,15 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
 use ratatui::widgets::canvas::{Canvas, Circle, Points};
+use ratatui::widgets::{Block, Paragraph};
 
 use crate::app::App;
 use crate::geo;
+use crate::track::Track;
 
 /// Terminal cells are approximately twice as tall as they are wide.
 pub const CELL_ASPECT: f64 = 2.0;
@@ -344,7 +345,10 @@ pub fn render(frame: &mut Frame, app: &App) {
         let (x, y) = geo::project(azimuth, elevation, app.sky_orientation);
         let (col, row) = geometry.direction_cell(x, y);
         let alpha = track.alpha(app.now_s);
-        let style = Style::default().fg(altitude_color(track.alt_m, alpha));
+        let mut style = Style::default().fg(altitude_color(track.alt_m, alpha));
+        if app.selected.as_deref() == Some(track.id.as_str()) {
+            style = style.add_modifier(Modifier::BOLD);
+        }
         let arrow = screen_arrow(track.track_deg, app.sky_orientation);
         buffer.set_string(origin_x + col, origin_y + row, arrow.to_string(), style);
         if app.show_callsigns {
@@ -357,7 +361,79 @@ pub fn render(frame: &mut Frame, app: &App) {
         }
     }
 
+    if let Some(track) = app.selected_track() {
+        render_detail(frame, sky_area, track, app, &palette);
+    }
+
     frame.render_widget(Paragraph::new(status_line(app)), status_area);
+}
+
+/// The detail box for the selected aircraft.
+fn render_detail(frame: &mut Frame, area: Rect, track: &Track, app: &App, palette: &Palette) {
+    if area.width < 24 || area.height < 10 {
+        return;
+    }
+
+    let (azimuth, elevation, range_m) = track.az_el();
+    let altitude = track.alt_m.map_or_else(
+        || "on ground".to_string(),
+        |metres| {
+            let (value, unit) = app.units.altitude(metres);
+            format!("{value:.0} {unit}")
+        },
+    );
+    let (speed, speed_unit) = app.units.speed(track.ground_speed_ms.unwrap_or(0.0));
+    let (distance, distance_unit) = app.units.distance(range_m / 1000.0);
+
+    let identity: Vec<&str> = [track.registration.as_deref(), track.type_code.as_deref()]
+        .into_iter()
+        .flatten()
+        .collect();
+
+    let mut lines = vec![Line::from(Span::styled(
+        track.label().to_string(),
+        Style::default().add_modifier(Modifier::BOLD),
+    ))];
+    if !identity.is_empty() {
+        lines.push(Line::from(identity.join(" · ")));
+    }
+    lines.push(Line::from(format!("Altitude  {altitude}")));
+    lines.push(Line::from(format!("Speed     {speed:.0} {speed_unit}")));
+    lines.push(Line::from(format!(
+        "Distance  {distance:.1} {distance_unit}"
+    )));
+    lines.push(Line::from(format!(
+        "Where     {}, {elevation:.0}° up",
+        compass_word(azimuth)
+    )));
+
+    let width = 32.min(area.width.saturating_sub(2));
+    let height = u16::try_from(lines.len())
+        .unwrap_or(u16::MAX)
+        .saturating_add(2);
+    let detail_area = Rect::new(area.x + 1, area.y + 1, width, height);
+    let style = Style::default()
+        .fg(rgb(palette.compass))
+        .bg(rgb(palette.background));
+    let block = Block::bordered().title(" Selected ").style(style);
+    frame.render_widget(Paragraph::new(lines).block(block).style(style), detail_area);
+}
+
+/// The eight-point compass name for an azimuth.
+#[must_use]
+pub fn compass_word(azimuth_deg: f64) -> &'static str {
+    const WORDS: [&str; 8] = [
+        "north",
+        "north-east",
+        "east",
+        "south-east",
+        "south",
+        "south-west",
+        "west",
+        "north-west",
+    ];
+    let index = (((azimuth_deg.rem_euclid(360.0) + 22.5) / 45.0).floor() as usize) % WORDS.len();
+    WORDS[index]
 }
 
 /// Project an ENU position onto the sky disc, or `None` if it is out of range.
@@ -568,6 +644,17 @@ mod tests {
         terminal.draw(|frame| render(frame, &app)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("too small"), "{text}");
+    }
+
+    #[test]
+    fn compass_words_cover_the_eight_points() {
+        assert_eq!(compass_word(0.0), "north");
+        assert_eq!(compass_word(45.0), "north-east");
+        assert_eq!(compass_word(90.0), "east");
+        assert_eq!(compass_word(180.0), "south");
+        assert_eq!(compass_word(270.0), "west");
+        assert_eq!(compass_word(350.0), "north");
+        assert_eq!(compass_word(23.0), "north-east");
     }
 
     #[test]

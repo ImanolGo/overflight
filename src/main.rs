@@ -9,6 +9,7 @@ use clap::{Parser, ValueEnum};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 
 use overflight::app::App;
+use overflight::config::{FileConfig, Units};
 use overflight::fetcher::{FetchEvent, Fetcher};
 use overflight::geo;
 use overflight::providers::airplanes_live::AirplanesLive;
@@ -16,11 +17,37 @@ use overflight::providers::fixture::FixtureProvider;
 use overflight::providers::local::Local;
 use overflight::providers::opensky::{Credentials, OpenSky};
 use overflight::providers::{self, Aircraft, Provider, Query, Recorder};
-use overflight::render;
-use overflight::sun;
+use overflight::{render, sun};
 
 /// Target frame time, about 30 fps.
 const TARGET_FRAME: Duration = Duration::from_millis(33);
+
+const LONG_ABOUT: &str = "\
+See the aircraft flying above you as a live sky view.
+
+Tell overflight where you are with --lat/--lon or a config file, and it draws \
+the planes overhead: the centre of the circle is straight up, the edge is the \
+horizon, and each plane drifts across in real time with its callsign trailing \
+behind. The sky is blue by day, fades at dusk, and shows stars at night.";
+
+const AFTER_HELP: &str = "\
+Examples:
+  overflight --lat 52.52 --lon 13.40
+  overflight --demo
+  overflight --source local --url http://your-pi/data/aircraft.json
+  overflight --screensaver --demo
+
+Configuration:
+  Defaults can live in config.toml in your config directory
+  (~/.config/overflight/config.toml on Linux). Command-line flags win.
+
+Keys while running:
+  q / Esc   quit
+  Tab       select the next aircraft
+  l         show or hide callsigns
+  t         show or hide trails
+  m         switch sky/map orientation
+  u         switch metric/imperial units";
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum SourceArg {
@@ -33,32 +60,46 @@ enum SourceArg {
 #[command(
     name = "overflight",
     version,
-    about = "See the aircraft flying above you as a live sky view."
+    about = "See the aircraft flying above you as a live sky view.",
+    long_about = LONG_ABOUT,
+    after_help = AFTER_HELP
 )]
 struct Cli {
     /// Observer latitude in decimal degrees.
-    #[arg(long, allow_negative_numbers = true)]
+    #[arg(long, allow_negative_numbers = true, value_name = "DEGREES")]
     lat: Option<f64>,
 
     /// Observer longitude in decimal degrees.
-    #[arg(long, allow_negative_numbers = true)]
+    #[arg(long, allow_negative_numbers = true, value_name = "DEGREES")]
     lon: Option<f64>,
 
-    /// Where the aircraft data comes from.
-    #[arg(long, value_enum, default_value = "airplanes-live")]
-    source: SourceArg,
+    /// Where the aircraft data comes from [default: airplanes-live].
+    #[arg(long, value_enum, value_name = "SOURCE")]
+    source: Option<SourceArg>,
 
     /// URL of a local receiver's aircraft.json (with --source local).
-    #[arg(long)]
+    #[arg(long, value_name = "URL")]
     url: Option<String>,
 
     /// Replay recorded traffic from the bundled fixture; no network needed.
     #[arg(long)]
     demo: bool,
 
-    /// How far out to look, in kilometres.
-    #[arg(long, default_value_t = 80.0)]
-    radius_km: f64,
+    /// How far out to look, in kilometres [default: 80].
+    #[arg(long, allow_negative_numbers = true, value_name = "KM")]
+    radius_km: Option<f64>,
+
+    /// Ignore aircraft below this elevation, in degrees [default: 0].
+    #[arg(long, allow_negative_numbers = true, value_name = "DEGREES")]
+    min_elevation: Option<f64>,
+
+    /// Seconds between updates, no faster than the source allows.
+    #[arg(long, value_name = "SECONDS")]
+    interval: Option<u64>,
+
+    /// Screensaver mode: any key exits.
+    #[arg(long)]
+    screensaver: bool,
 
     /// Fetch once, print a table of aircraft, then exit.
     #[arg(long, hide = true)]
@@ -73,23 +114,86 @@ struct Cli {
     time: Option<String>,
 }
 
-fn main() -> Result<()> {
-    let cli = Cli::parse();
-    if cli.dump {
-        return dump(&cli);
-    }
-    run_live(&cli)
+/// Fully resolved settings: config file, overridden by CLI flags, with
+/// built-in defaults for anything still missing.
+struct Settings {
+    lat: Option<f64>,
+    lon: Option<f64>,
+    radius_km: f64,
+    units: Units,
+    min_elevation: f64,
+    interval: Option<u64>,
+    source: SourceArg,
+    url: Option<String>,
+    opensky_client_id: Option<String>,
+    opensky_client_secret: Option<String>,
+    demo: bool,
+    dump: bool,
+    record: Option<PathBuf>,
+    time: Option<String>,
+    screensaver: bool,
 }
 
-/// Build the provider and query from the CLI.
-fn build_provider(cli: &Cli) -> Result<(Box<dyn Provider>, Query)> {
-    if cli.demo {
+impl Settings {
+    fn resolve(cli: &Cli, file: Option<&FileConfig>) -> Result<Self> {
+        let source = match cli.source {
+            Some(source) => source,
+            None => match file.and_then(|config| config.source.as_deref()) {
+                Some(name) => <SourceArg as ValueEnum>::from_str(name, true)
+                    .map_err(|_| anyhow::anyhow!("unknown source {name:?} in config file"))?,
+                None => SourceArg::AirplanesLive,
+            },
+        };
+
+        Ok(Self {
+            lat: cli.lat.or(file.and_then(|config| config.lat)),
+            lon: cli.lon.or(file.and_then(|config| config.lon)),
+            radius_km: cli
+                .radius_km
+                .or(file.and_then(|config| config.radius_km))
+                .unwrap_or(80.0),
+            units: file.and_then(|config| config.units).unwrap_or_default(),
+            min_elevation: cli
+                .min_elevation
+                .or(file.and_then(|config| config.min_elevation))
+                .unwrap_or(0.0),
+            interval: cli.interval.or(file.and_then(|config| config.interval)),
+            source,
+            url: cli
+                .url
+                .clone()
+                .or_else(|| file.and_then(|config| config.url.clone())),
+            opensky_client_id: file.and_then(|config| config.opensky_client_id.clone()),
+            opensky_client_secret: file.and_then(|config| config.opensky_client_secret.clone()),
+            demo: cli.demo,
+            dump: cli.dump,
+            record: cli.record.clone(),
+            time: cli.time.clone(),
+            screensaver: cli.screensaver,
+        })
+    }
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    let config = FileConfig::load_default()?;
+    let settings = Settings::resolve(&cli, config.as_ref().map(|(_, config)| config))?;
+
+    if settings.dump {
+        return dump(&settings);
+    }
+    run_live(&settings)
+}
+
+/// Build the provider and query from the resolved settings.
+fn build_provider(settings: &Settings) -> Result<(Box<dyn Provider>, Query)> {
+    if settings.demo {
         let fixture = FixtureProvider::embedded()?;
-        let query = match (cli.lat, cli.lon) {
+        let query = match (settings.lat, settings.lon) {
             (Some(lat), Some(lon)) => Query {
                 lat,
                 lon,
-                radius_km: cli.radius_km,
+                radius_km: settings.radius_km,
             },
             (None, None) => fixture.query(),
             _ => bail!("give both --lat and --lon, or neither with --demo"),
@@ -97,24 +201,27 @@ fn build_provider(cli: &Cli) -> Result<(Box<dyn Provider>, Query)> {
         return Ok((Box::new(fixture), query));
     }
 
-    let (Some(lat), Some(lon)) = (cli.lat, cli.lon) else {
-        bail!("set your location with --lat and --lon, or use --demo");
+    let (Some(lat), Some(lon)) = (settings.lat, settings.lon) else {
+        bail!(
+            "set your location with --lat and --lon, or in the config file \
+             (~/.config/overflight/config.toml), or use --demo"
+        );
     };
     let query = Query {
         lat,
         lon,
-        radius_km: cli.radius_km,
+        radius_km: settings.radius_km,
     };
     let client = providers::http_client()?;
-    let recorder = cli.record.clone().map(Recorder::new);
+    let recorder = settings.record.clone().map(Recorder::new);
 
-    let provider: Box<dyn Provider> = match cli.source {
+    let provider: Box<dyn Provider> = match settings.source {
         SourceArg::AirplanesLive => match recorder {
             Some(recorder) => Box::new(AirplanesLive::new(client).with_recorder(recorder)),
             None => Box::new(AirplanesLive::new(client)),
         },
         SourceArg::Local => {
-            let url = cli
+            let url = settings
                 .url
                 .clone()
                 .context("--url is required with --source local")?;
@@ -124,7 +231,15 @@ fn build_provider(cli: &Cli) -> Result<(Box<dyn Provider>, Query)> {
             }
         }
         SourceArg::Opensky => {
-            let credentials = Credentials::from_env()?;
+            let credentials = match (
+                settings.opensky_client_id.as_ref(),
+                settings.opensky_client_secret.as_ref(),
+            ) {
+                (Some(client_id), Some(client_secret)) => {
+                    Credentials::new(client_id.clone(), client_secret.clone())
+                }
+                _ => Credentials::from_env()?,
+            };
             match recorder {
                 Some(recorder) => {
                     Box::new(OpenSky::new(client, credentials).with_recorder(recorder))
@@ -138,8 +253,8 @@ fn build_provider(cli: &Cli) -> Result<(Box<dyn Provider>, Query)> {
 }
 
 /// Fetch once and print a table of aircraft with az/el and distance.
-fn dump(cli: &Cli) -> Result<()> {
-    let (mut provider, query) = build_provider(cli)?;
+fn dump(settings: &Settings) -> Result<()> {
+    let (mut provider, query) = build_provider(settings)?;
     let aircraft = provider.fetch(&query)?;
     print_table(provider.name(), &query, &aircraft);
     Ok(())
@@ -192,13 +307,20 @@ fn print_table(source: &str, query: &Query, aircraft: &[Aircraft]) {
 }
 
 /// Run the live sky view.
-fn run_live(cli: &Cli) -> Result<()> {
-    let (provider, query) = build_provider(cli)?;
+fn run_live(settings: &Settings) -> Result<()> {
+    let (provider, query) = build_provider(settings)?;
     let source = provider.name().to_string();
-    let interval = provider.min_interval();
+    let interval = settings
+        .interval
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| provider.min_interval());
     let mut fetcher = Fetcher::spawn(provider, query, interval);
+
     let mut app = App::new(query, source);
-    let fixed_time = cli
+    app.units = settings.units;
+    app.min_elevation_deg = settings.min_elevation;
+
+    let fixed_time = settings
         .time
         .as_deref()
         .map(sun::parse_rfc3339_seconds)
@@ -206,7 +328,13 @@ fn run_live(cli: &Cli) -> Result<()> {
         .map(|seconds| seconds as f64);
 
     let mut terminal = ratatui::init();
-    let result = event_loop(&mut terminal, &mut app, &mut fetcher, fixed_time);
+    let result = event_loop(
+        &mut terminal,
+        &mut app,
+        &mut fetcher,
+        fixed_time,
+        settings.screensaver,
+    );
     ratatui::restore();
     result
 }
@@ -216,6 +344,7 @@ fn event_loop(
     app: &mut App,
     fetcher: &mut Fetcher,
     fixed_time: Option<f64>,
+    screensaver: bool,
 ) -> Result<()> {
     let start = Instant::now();
     let mut deadline = Instant::now();
@@ -238,7 +367,7 @@ fn event_loop(
         if event::poll(timeout)?
             && let Event::Key(key) = event::read()?
             && key.kind == KeyEventKind::Press
-            && matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
+            && (screensaver || handle_key(app, key.code))
         {
             break;
         }
@@ -249,10 +378,120 @@ fn event_loop(
     Ok(())
 }
 
+/// Handle a key press, returning `true` if the app should quit.
+fn handle_key(app: &mut App, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Char('q') | KeyCode::Esc => true,
+        KeyCode::Tab => {
+            app.select_next();
+            false
+        }
+        KeyCode::Char('l') => {
+            app.show_callsigns = !app.show_callsigns;
+            false
+        }
+        KeyCode::Char('t') => {
+            app.show_trails = !app.show_trails;
+            false
+        }
+        KeyCode::Char('m') => {
+            app.sky_orientation = !app.sky_orientation;
+            false
+        }
+        KeyCode::Char('u') => {
+            app.units = app.units.toggled();
+            false
+        }
+        _ => false,
+    }
+}
+
 /// Seconds since the Unix epoch.
 fn now_unix_seconds() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_secs_f64())
         .unwrap_or(0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config() -> FileConfig {
+        FileConfig {
+            lat: Some(1.0),
+            lon: Some(2.0),
+            radius_km: Some(10.0),
+            units: Some(Units::Imperial),
+            min_elevation: Some(5.0),
+            interval: Some(9),
+            source: Some("local".to_string()),
+            url: Some("http://example/aircraft.json".to_string()),
+            ..FileConfig::default()
+        }
+    }
+
+    #[test]
+    fn command_line_flags_override_the_config_file() {
+        let cli = Cli::parse_from(["overflight", "--lat", "40.0", "--radius-km", "20"]);
+        let settings = Settings::resolve(&cli, Some(&config())).unwrap();
+
+        assert_eq!(settings.lat, Some(40.0)); // CLI wins
+        assert_eq!(settings.lon, Some(2.0)); // from the file
+        assert_eq!(settings.radius_km, 20.0); // CLI wins
+        assert_eq!(settings.units, Units::Imperial); // from the file
+        assert_eq!(settings.interval, Some(9));
+        assert_eq!(settings.min_elevation, 5.0);
+        assert!(matches!(settings.source, SourceArg::Local));
+        assert_eq!(
+            settings.url.as_deref(),
+            Some("http://example/aircraft.json")
+        );
+    }
+
+    #[test]
+    fn defaults_apply_without_a_config_file() {
+        let cli = Cli::parse_from(["overflight"]);
+        let settings = Settings::resolve(&cli, None).unwrap();
+        assert_eq!(settings.radius_km, 80.0);
+        assert_eq!(settings.min_elevation, 0.0);
+        assert_eq!(settings.units, Units::Metric);
+        assert!(matches!(settings.source, SourceArg::AirplanesLive));
+    }
+
+    #[test]
+    fn an_unknown_config_source_is_an_error() {
+        let cli = Cli::parse_from(["overflight"]);
+        let file = FileConfig {
+            source: Some("nope".to_string()),
+            ..FileConfig::default()
+        };
+        assert!(Settings::resolve(&cli, Some(&file)).is_err());
+    }
+
+    #[test]
+    fn keys_toggle_app_state_and_quit() {
+        let mut app = App::new(
+            Query {
+                lat: 0.0,
+                lon: 0.0,
+                radius_km: 1.0,
+            },
+            "test",
+        );
+        assert!(handle_key(&mut app, KeyCode::Char('q')));
+        assert!(app.show_callsigns);
+        assert!(!handle_key(&mut app, KeyCode::Char('l')));
+        assert!(!app.show_callsigns);
+        assert!(!handle_key(&mut app, KeyCode::Char('t')));
+        assert!(!app.show_trails);
+        assert!(!handle_key(&mut app, KeyCode::Char('m')));
+        assert!(!app.sky_orientation);
+        assert!(!handle_key(&mut app, KeyCode::Char('u')));
+        assert_eq!(app.units, Units::Imperial);
+        assert!(!handle_key(&mut app, KeyCode::Tab));
+        assert_eq!(app.selected, None);
+        assert!(handle_key(&mut app, KeyCode::Esc));
+    }
 }
