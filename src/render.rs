@@ -30,12 +30,93 @@ const MIN_HEIGHT: u16 = 15;
 /// Distance, in cells, between the horizon and the compass letters.
 const COMPASS_GAP_CELLS: f64 = 1.5;
 
-const HORIZON_COLOR: Color = Color::Rgb(80, 80, 90);
-const RING_COLOR: Color = Color::Rgb(46, 46, 56);
-const TRAIL_COLOR: (f64, f64, f64) = (70.0, 95.0, 130.0);
-
 /// The eight aircraft arrows, indexed by screen heading in 45° steps from east.
 const ARROWS: [char; 8] = ['→', '↗', '↑', '↖', '←', '↙', '↓', '↘'];
+
+/// A colour as a float triple, easy to scale for fading.
+type Rgb = (f64, f64, f64);
+
+/// Which sky palette is in use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkyKind {
+    Day,
+    Twilight,
+    Night,
+}
+
+/// Colours for the current time of day.
+///
+/// The sky is filled with its own background colour rather than relying on the
+/// terminal theme, so the view looks the same on a light or a dark terminal.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Palette {
+    pub kind: SkyKind,
+    pub background: Rgb,
+    pub horizon: Rgb,
+    pub ring: Rgb,
+    pub trail: Rgb,
+    pub star: Rgb,
+    pub compass: Rgb,
+}
+
+const DAY_PALETTE: Palette = Palette {
+    kind: SkyKind::Day,
+    background: (64.0, 110.0, 168.0),
+    horizon: (228.0, 238.0, 252.0),
+    ring: (110.0, 158.0, 208.0),
+    trail: (190.0, 220.0, 248.0),
+    star: (200.0, 205.0, 220.0),
+    compass: (232.0, 232.0, 238.0),
+};
+
+const TWILIGHT_PALETTE: Palette = Palette {
+    kind: SkyKind::Twilight,
+    background: (70.0, 54.0, 88.0),
+    horizon: (240.0, 164.0, 104.0),
+    ring: (126.0, 100.0, 142.0),
+    trail: (206.0, 168.0, 150.0),
+    star: (200.0, 205.0, 220.0),
+    compass: (230.0, 220.0, 220.0),
+};
+
+const NIGHT_PALETTE: Palette = Palette {
+    kind: SkyKind::Night,
+    background: (7.0, 10.0, 24.0),
+    horizon: (58.0, 74.0, 120.0),
+    ring: (28.0, 36.0, 62.0),
+    trail: (56.0, 76.0, 116.0),
+    star: (200.0, 205.0, 220.0),
+    compass: (200.0, 205.0, 215.0),
+};
+
+/// Sun elevation above this is day.
+const DAY_SUN_ELEVATION: f64 = 0.0;
+/// Sun elevation below this is night; in between is twilight.
+const NIGHT_SUN_ELEVATION: f64 = -12.0;
+
+impl Palette {
+    /// Pick the palette for a sun elevation in degrees.
+    #[must_use]
+    pub fn for_sun_elevation(elevation_deg: f64) -> Self {
+        if elevation_deg > DAY_SUN_ELEVATION {
+            DAY_PALETTE
+        } else if elevation_deg > NIGHT_SUN_ELEVATION {
+            TWILIGHT_PALETTE
+        } else {
+            NIGHT_PALETTE
+        }
+    }
+
+    /// Whether the star field should be drawn.
+    #[must_use]
+    pub const fn shows_stars(self) -> bool {
+        matches!(self.kind, SkyKind::Night)
+    }
+}
+
+fn rgb(color: Rgb) -> Color {
+    Color::Rgb(color.0 as u8, color.1 as u8, color.2 as u8)
+}
 
 /// The coordinate system used to paint the sky into a terminal area.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -183,19 +264,36 @@ pub fn render(frame: &mut Frame, app: &App) {
     let [sky_area, status_area] =
         Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(area);
     let geometry = SkyGeometry::new(sky_area.width, sky_area.height);
+    let palette = Palette::for_sun_elevation(app.sun_elevation_deg);
     let (cx, cy) = geometry.center;
     let radius = geometry.radius;
 
     let canvas = Canvas::default()
+        .background_color(rgb(palette.background))
         .x_bounds(geometry.x_bounds)
         .y_bounds(geometry.y_bounds)
         .marker(symbols::Marker::Braille)
         .paint(|ctx| {
+            if palette.shows_stars() {
+                for star in &app.stars {
+                    let x = if app.sky_orientation {
+                        -star.east
+                    } else {
+                        star.east
+                    };
+                    let (x, y) = geometry.direction_canvas(x, star.north);
+                    ctx.draw(&Points {
+                        coords: &[(x, y)],
+                        color: dim(palette.star, star.brightness),
+                    });
+                }
+            }
+
             ctx.draw(&Circle {
                 x: cx,
                 y: cy,
                 radius,
-                color: HORIZON_COLOR,
+                color: rgb(palette.horizon),
             });
             for elevation in [30.0, 60.0] {
                 let fraction = (90.0 - elevation) / 90.0;
@@ -203,7 +301,7 @@ pub fn render(frame: &mut Frame, app: &App) {
                     x: cx,
                     y: cy,
                     radius: radius * fraction,
-                    color: RING_COLOR,
+                    color: rgb(palette.ring),
                 });
             }
 
@@ -212,10 +310,10 @@ pub fn render(frame: &mut Frame, app: &App) {
                     let alpha = track.alpha(app.now_s);
                     for (enu, age) in track.trail(app.now_s) {
                         if let Some((x, y)) = disc_position(&enu, app.sky_orientation) {
-                            let (cx, cy) = geometry.direction_canvas(x, y);
+                            let (x, y) = geometry.direction_canvas(x, y);
                             ctx.draw(&Points {
-                                coords: &[(cx, cy)],
-                                color: trail_color(age, alpha),
+                                coords: &[(x, y)],
+                                color: trail_color(&palette, age, alpha),
                             });
                         }
                     }
@@ -234,7 +332,7 @@ pub fn render(frame: &mut Frame, app: &App) {
             origin_x + x,
             origin_y + y,
             compass.letter(),
-            Style::default().fg(Color::Gray),
+            Style::default().fg(rgb(palette.compass)),
         );
     }
 
@@ -294,20 +392,20 @@ pub fn screen_arrow(track_deg: Option<f64>, sky_orientation: bool) -> char {
 /// Colour for an aircraft by altitude band, dimmed by `alpha`.
 fn altitude_color(alt_m: Option<f64>, alpha: f64) -> Color {
     let (r, g, b) = match alt_m {
-        Some(altitude) if altitude < 3_000.0 => (255.0, 170.0, 80.0),
-        Some(altitude) if altitude > 9_000.0 => (120.0, 180.0, 255.0),
-        _ => (200.0, 200.0, 200.0),
+        Some(altitude) if altitude < 3_000.0 => (255.0, 176.0, 84.0),
+        Some(altitude) if altitude > 9_000.0 => (200.0, 230.0, 255.0),
+        _ => (235.0, 235.0, 235.0),
     };
     dim((r, g, b), alpha)
 }
 
 /// Fading trail dot colour.
-fn trail_color(age_s: f64, alpha: f64) -> Color {
+fn trail_color(palette: &Palette, age_s: f64, alpha: f64) -> Color {
     let freshness = (1.0 - age_s / 60.0).clamp(0.0, 1.0);
-    dim(TRAIL_COLOR, freshness * alpha)
+    dim(palette.trail, freshness * alpha)
 }
 
-fn dim((r, g, b): (f64, f64, f64), alpha: f64) -> Color {
+fn dim((r, g, b): Rgb, alpha: f64) -> Color {
     let alpha = alpha.clamp(0.0, 1.0);
     Color::Rgb((r * alpha) as u8, (g * alpha) as u8, (b * alpha) as u8)
 }
@@ -473,24 +571,47 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_demo_sky_is_stable() {
+    fn palette_follows_the_sun() {
+        assert_eq!(Palette::for_sun_elevation(30.0).kind, SkyKind::Day);
+        assert_eq!(Palette::for_sun_elevation(-5.0).kind, SkyKind::Twilight);
+        assert_eq!(Palette::for_sun_elevation(-30.0).kind, SkyKind::Night);
+        assert!(!Palette::for_sun_elevation(30.0).shows_stars());
+        assert!(!Palette::for_sun_elevation(-5.0).shows_stars());
+        assert!(Palette::for_sun_elevation(-30.0).shows_stars());
+    }
+
+    fn demo_app(utc: f64) -> App {
         let mut provider = FixtureProvider::embedded().unwrap();
         let query = provider.query();
-
         let mut app = App::new(query, "demo");
-        // First poll, then a second five seconds later, so the snapshot
-        // exercises dead reckoning, easing and the trail.
+        // Two polls five seconds apart, so dead reckoning, easing and the trail
+        // are all exercised at a fixed time.
         let first = provider.fetch(&query).unwrap();
         app.apply(&first, 0.0);
-        app.update(0.0);
+        app.update(0.0, utc);
         let second = provider.fetch(&query).unwrap();
         app.apply(&second, 5.0);
-        app.update(5.0);
-        app.update(5.6);
+        app.update(5.0, utc);
+        app.update(5.6, utc);
+        app
+    }
 
+    #[test]
+    fn snapshot_demo_day_sky_is_stable() {
+        let utc = crate::sun::parse_rfc3339_seconds("2024-06-21T12:00:00Z").unwrap() as f64;
+        let app = demo_app(utc);
         let mut terminal = Terminal::new(TestBackend::new(100, 32)).unwrap();
         terminal.draw(|frame| render(frame, &app)).unwrap();
-        insta::assert_snapshot!("demo_sky", buffer_text(terminal.backend().buffer()));
+        insta::assert_snapshot!("demo_day_sky", buffer_text(terminal.backend().buffer()));
+    }
+
+    #[test]
+    fn snapshot_demo_night_sky_is_stable() {
+        let utc = crate::sun::parse_rfc3339_seconds("2024-06-21T00:00:00Z").unwrap() as f64;
+        let app = demo_app(utc);
+        let mut terminal = Terminal::new(TestBackend::new(100, 32)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        insta::assert_snapshot!("demo_night_sky", buffer_text(terminal.backend().buffer()));
     }
 
     fn buffer_text(buffer: &Buffer) -> String {

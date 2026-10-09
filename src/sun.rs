@@ -177,6 +177,65 @@ fn refraction_deg(elevation_deg: f64) -> f64 {
     arcseconds / 3600.0
 }
 
+/// Parse an RFC 3339 timestamp (e.g. `2024-06-20T11:08:00+02:00`) into Unix
+/// seconds UTC. Fractional seconds are ignored.
+pub fn parse_rfc3339_seconds(input: &str) -> anyhow::Result<i64> {
+    let input = input.trim();
+    let (date, rest) = input
+        .split_once('T')
+        .or_else(|| input.split_once('t'))
+        .ok_or_else(|| {
+            anyhow::anyhow!("expected an RFC 3339 timestamp like 2024-06-20T11:08:00Z")
+        })?;
+
+    let mut date_parts = date.split('-');
+    let year: i32 = parse_field(date_parts.next(), "year")?;
+    let month: u32 = parse_field(date_parts.next(), "month")?;
+    let day: u32 = parse_field(date_parts.next(), "day")?;
+    if date_parts.next().is_some() {
+        anyhow::bail!("invalid date in {input:?}");
+    }
+
+    let (time, offset_seconds) = if rest.ends_with('Z') || rest.ends_with('z') {
+        (&rest[..rest.len() - 1], 0)
+    } else {
+        let sign_at = rest
+            .rfind(['+', '-'])
+            .ok_or_else(|| anyhow::anyhow!("timestamp needs a 'Z' or numeric offset"))?;
+        let (time, offset) = rest.split_at(sign_at);
+        let sign = if offset.starts_with('-') { -1 } else { 1 };
+        let mut offset_parts = offset[1..].split(':');
+        let hours: i64 = parse_field(offset_parts.next(), "offset hours")?;
+        let minutes: i64 = parse_field(offset_parts.next(), "offset minutes")?;
+        (time, sign * (hours * 3600 + minutes * 60))
+    };
+
+    // Drop any fractional seconds.
+    let time = time.split_once('.').map_or(time, |(whole, _)| whole);
+    let mut time_parts = time.split(':');
+    let hour: u32 = parse_field(time_parts.next(), "hour")?;
+    let minute: u32 = parse_field(time_parts.next(), "minute")?;
+    let second: u32 = parse_field(time_parts.next(), "second")?;
+
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        anyhow::bail!("invalid date or time in {input:?}");
+    }
+
+    Ok(Utc::new(year, month, day, hour, minute, second).to_unix_seconds() - offset_seconds)
+}
+
+fn parse_field<T: std::str::FromStr>(field: Option<&str>, name: &str) -> anyhow::Result<T> {
+    field
+        .ok_or_else(|| anyhow::anyhow!("missing {name}"))?
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid {name}"))
+}
+
 #[cfg(test)]
 mod tests {
     use approx::assert_abs_diff_eq;
@@ -195,6 +254,36 @@ mod tests {
         let t = Utc::from_unix_seconds(1_000_000_000);
         assert_eq!(t, Utc::new(2001, 9, 9, 1, 46, 40));
         assert_eq!(t.to_unix_seconds(), 1_000_000_000);
+    }
+
+    #[test]
+    fn parses_rfc3339_timestamps() {
+        assert_eq!(parse_rfc3339_seconds("1970-01-01T00:00:00Z").unwrap(), 0);
+        assert_eq!(
+            parse_rfc3339_seconds("2001-09-09T01:46:40Z").unwrap(),
+            1_000_000_000
+        );
+        // Fractional seconds are ignored.
+        assert_eq!(
+            parse_rfc3339_seconds("2001-09-09T01:46:40.500Z").unwrap(),
+            1_000_000_000
+        );
+        // A +02:00 offset is the same instant as 01:46:40Z.
+        assert_eq!(
+            parse_rfc3339_seconds("2001-09-09T03:46:40+02:00").unwrap(),
+            1_000_000_000
+        );
+        assert_eq!(
+            parse_rfc3339_seconds("2001-09-08T20:46:40-05:00").unwrap(),
+            1_000_000_000
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_timestamps() {
+        assert!(parse_rfc3339_seconds("2024-06-20").is_err());
+        assert!(parse_rfc3339_seconds("2024-13-40T00:00:00Z").is_err());
+        assert!(parse_rfc3339_seconds("not a time").is_err());
     }
 
     #[test]

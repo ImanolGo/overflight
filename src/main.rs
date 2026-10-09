@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
@@ -17,6 +17,7 @@ use overflight::providers::local::Local;
 use overflight::providers::opensky::{Credentials, OpenSky};
 use overflight::providers::{self, Aircraft, Provider, Query, Recorder};
 use overflight::render;
+use overflight::sun;
 
 /// Target frame time, about 30 fps.
 const TARGET_FRAME: Duration = Duration::from_millis(33);
@@ -66,6 +67,10 @@ struct Cli {
     /// Directory to save raw responses into, for building fixtures.
     #[arg(long, hide = true, value_name = "DIR")]
     record: Option<PathBuf>,
+
+    /// Fake the current time as an RFC 3339 timestamp, for checking palettes.
+    #[arg(long, hide = true, value_name = "RFC3339")]
+    time: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -193,9 +198,15 @@ fn run_live(cli: &Cli) -> Result<()> {
     let interval = provider.min_interval();
     let mut fetcher = Fetcher::spawn(provider, query, interval);
     let mut app = App::new(query, source);
+    let fixed_time = cli
+        .time
+        .as_deref()
+        .map(sun::parse_rfc3339_seconds)
+        .transpose()?
+        .map(|seconds| seconds as f64);
 
     let mut terminal = ratatui::init();
-    let result = event_loop(&mut terminal, &mut app, &mut fetcher);
+    let result = event_loop(&mut terminal, &mut app, &mut fetcher, fixed_time);
     ratatui::restore();
     result
 }
@@ -204,12 +215,14 @@ fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
     app: &mut App,
     fetcher: &mut Fetcher,
+    fixed_time: Option<f64>,
 ) -> Result<()> {
     let start = Instant::now();
     let mut deadline = Instant::now();
 
     loop {
         let now_s = start.elapsed().as_secs_f64();
+        let utc_s = fixed_time.unwrap_or_else(now_unix_seconds);
 
         while let Ok(event) = fetcher.events.try_recv() {
             match event {
@@ -217,7 +230,7 @@ fn event_loop(
                 FetchEvent::Error(message) => app.set_error(message),
             }
         }
-        app.update(now_s);
+        app.update(now_s, utc_s);
         terminal.draw(|frame| render::render(frame, app))?;
 
         deadline += TARGET_FRAME;
@@ -234,4 +247,12 @@ fn event_loop(
         }
     }
     Ok(())
+}
+
+/// Seconds since the Unix epoch.
+fn now_unix_seconds() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs_f64())
+        .unwrap_or(0.0)
 }

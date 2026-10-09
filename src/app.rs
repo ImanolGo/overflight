@@ -1,8 +1,44 @@
 //! Application state: the set of tracked aircraft and the toggles that affect
 //! how they are drawn.
 
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+
 use crate::providers::{Aircraft, Query};
+use crate::sun::{self, Utc};
 use crate::track::Track;
+
+/// Seed for the star field, so it is the same every run and never flickers.
+const STAR_SEED: u64 = 0x5EED_0F1E_2D3C_4B5A;
+/// How many stars to scatter in the night sky.
+const STAR_COUNT: usize = 140;
+
+/// A fixed star, in disc coordinates with the horizon at radius one.
+#[derive(Debug, Clone, Copy)]
+pub struct Star {
+    /// East component, in horizon radii.
+    pub east: f64,
+    /// North component, in horizon radii.
+    pub north: f64,
+    /// Relative brightness, `0..1`.
+    pub brightness: f64,
+}
+
+fn generate_stars() -> Vec<Star> {
+    let mut rng = StdRng::seed_from_u64(STAR_SEED);
+    (0..STAR_COUNT)
+        .map(|_| {
+            // sqrt keeps the scatter uniform across the disc, not clumped.
+            let radius = rng.random_range(0.0_f64..1.0).sqrt() * 0.98;
+            let angle = rng.random_range(0.0..std::f64::consts::TAU);
+            Star {
+                east: radius * angle.sin(),
+                north: radius * angle.cos(),
+                brightness: rng.random_range(0.35..1.0),
+            }
+        })
+        .collect()
+}
 
 /// Everything the UI needs to draw a frame.
 #[derive(Debug)]
@@ -20,6 +56,12 @@ pub struct App {
     pub last_error: Option<String>,
     /// Seconds since the app started.
     pub now_s: f64,
+    /// Current time as Unix seconds.
+    pub utc_s: f64,
+    /// Sun elevation above the horizon for the observer, degrees.
+    pub sun_elevation_deg: f64,
+    /// Fixed star field for the night sky.
+    pub stars: Vec<Star>,
 }
 
 impl App {
@@ -36,6 +78,9 @@ impl App {
             last_update_s: None,
             last_error: None,
             now_s: 0.0,
+            utc_s: 0.0,
+            sun_elevation_deg: 90.0,
+            stars: generate_stars(),
         }
     }
 
@@ -62,9 +107,16 @@ impl App {
         self.last_error = Some(message.into());
     }
 
-    /// Advance every track and drop the ones that have gone quiet.
-    pub fn update(&mut self, now_s: f64) {
+    /// Advance every track, recompute the sun, and drop tracks that have gone
+    /// quiet. `now_s` is seconds since start; `utc_s` is the wall-clock time.
+    pub fn update(&mut self, now_s: f64, utc_s: f64) {
         self.now_s = now_s;
+        self.utc_s = utc_s;
+        self.sun_elevation_deg = sun::solar_elevation_deg(
+            self.query.lat,
+            self.query.lon,
+            Utc::from_unix_seconds(utc_s as i64),
+        );
         for track in &mut self.tracks {
             track.update(now_s);
         }
@@ -120,9 +172,9 @@ mod tests {
         assert_eq!(app.tracks[0].last_seen(), 5.0);
 
         // After a minute with no observation the track is dropped.
-        app.update(40.0);
+        app.update(40.0, 0.0);
         assert_eq!(app.live_count(), 1);
-        app.update(70.0);
+        app.update(70.0, 0.0);
         assert_eq!(app.live_count(), 0);
     }
 
@@ -133,5 +185,31 @@ mod tests {
         assert_eq!(app.last_error.as_deref(), Some("boom"));
         app.apply(&[], 1.0);
         assert!(app.last_error.is_none());
+    }
+
+    #[test]
+    fn stars_are_fixed_inside_the_disc() {
+        let app = App::new(query(), "test");
+        assert_eq!(app.stars.len(), STAR_COUNT);
+        for star in &app.stars {
+            assert!(star.east.hypot(star.north) <= 1.0);
+            assert!((0.35..=1.0).contains(&star.brightness));
+        }
+        let again = App::new(query(), "test");
+        let first: Vec<f64> = app.stars.iter().map(|star| star.east).collect();
+        let second: Vec<f64> = again.stars.iter().map(|star| star.east).collect();
+        assert_eq!(first, second, "star field must be deterministic");
+    }
+
+    #[test]
+    fn sun_elevation_is_recomputed_from_the_time() {
+        let mut app = App::new(query(), "test");
+        let noon = sun::parse_rfc3339_seconds("2024-06-20T11:08:00Z").unwrap() as f64;
+        app.update(0.0, noon);
+        assert!(app.sun_elevation_deg > 0.0, "expected daylight");
+
+        let midnight = sun::parse_rfc3339_seconds("2024-12-21T00:00:00Z").unwrap() as f64;
+        app.update(0.0, midnight);
+        assert!(app.sun_elevation_deg < -12.0, "expected night");
     }
 }
