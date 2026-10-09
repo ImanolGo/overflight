@@ -10,5 +10,6 @@ pub mod fetcher;
 pub mod geo;
 pub mod providers;
 pub mod render;
+pub mod sky;
 pub mod sun;
 pub mod track;

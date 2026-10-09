@@ -96,6 +96,9 @@ const DAY_SUN_ELEVATION: f64 = 0.0;
 /// Sun elevation below this is night; in between is twilight.
 const NIGHT_SUN_ELEVATION: f64 = -12.0;
 
+/// Colour for the Moon and bright planets in the night sky.
+const BODY_COLOR: Rgb = (245.0, 235.0, 190.0);
+
 impl Palette {
     /// Pick the palette for a sun elevation in degrees.
     #[must_use]
@@ -363,6 +366,24 @@ pub fn render(frame: &mut Frame, app: &App) {
                 origin_y + row,
                 aircraft_label(track),
                 style,
+            );
+        }
+    }
+
+    // The Moon and bright planets, drawn on top so a plane label cannot hide
+    // them.
+    if palette.kind != SkyKind::Day {
+        for body in &app.bodies {
+            if body.elevation_deg < 0.0 {
+                continue;
+            }
+            let (x, y) = geo::project(body.azimuth_deg, body.elevation_deg, app.sky_orientation);
+            let (col, row) = geometry.direction_cell(x, y);
+            buffer.set_string(
+                origin_x + col,
+                origin_y + row,
+                body.body.glyph().to_string(),
+                Style::default().fg(rgb(BODY_COLOR)),
             );
         }
     }

@@ -7,6 +7,7 @@ use rand::{Rng, SeedableRng};
 use crate::config::Units;
 use crate::geo::{self, GeoPoint};
 use crate::providers::{Aircraft, Query};
+use crate::sky::{self, BodyPosition};
 use crate::sun::{self, Utc};
 use crate::track::Track;
 
@@ -62,6 +63,8 @@ pub struct App {
     pub utc_s: f64,
     /// Sun elevation above the horizon for the observer, degrees.
     pub sun_elevation_deg: f64,
+    /// Moon and bright planet positions.
+    pub bodies: Vec<BodyPosition>,
     /// Fixed star field for the night sky.
     pub stars: Vec<Star>,
     /// Id of the selected aircraft, if any.
@@ -90,6 +93,7 @@ impl App {
             now_s: 0.0,
             utc_s: 0.0,
             sun_elevation_deg: 90.0,
+            bodies: Vec::new(),
             stars: generate_stars(),
             selected: None,
             notification: None,
@@ -144,11 +148,9 @@ impl App {
     pub fn update(&mut self, now_s: f64, utc_s: f64) {
         self.now_s = now_s;
         self.utc_s = utc_s;
-        self.sun_elevation_deg = sun::solar_elevation_deg(
-            self.query.lat,
-            self.query.lon,
-            Utc::from_unix_seconds(utc_s as i64),
-        );
+        let time = Utc::from_unix_seconds(utc_s as i64);
+        self.sun_elevation_deg = sun::solar_elevation_deg(self.query.lat, self.query.lon, time);
+        self.bodies = sky::positions(self.query.lat, self.query.lon, time);
         for track in &mut self.tracks {
             track.update(now_s);
         }
