@@ -138,6 +138,15 @@ Coverage depends on volunteer receivers, so some areas, especially rural ones an
 
 Your coordinates are only ever sent to the data source you pick, as part of the request for nearby aircraft. They're not logged or sent anywhere else. When a network is available and you select an aircraft, its callsign (not your location) is sent to [adsbdb](https://www.adsbdb.com/) to look up its route; turn this off with `--demo` (or just don't select anything). If you share screenshots, remember that the planes around you give a fair idea of where you live.
 
+## Stability
+
+The **binary** is the product. From 1.0, its visible flags, its config keys and
+the logbook format are stable: removing or renaming one needs a 2.0. The Rust
+library modules exist so the binary can be built, tested and documented, and are
+**not** a supported API — they may change in any release. The development flags
+(`--dump`, `--record`, `--time`, `--tle-group`) are for development and may
+change at any time.
+
 ## Contributing
 
 Issues and pull requests are welcome. Ideas I'd love help with: drawing satellite passes as a trail across the sky, showing terrain in map mode, recording and replaying your own ADS-B traffic, and a richer sound than the bell when something interesting flies over.
