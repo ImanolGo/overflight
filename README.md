@@ -78,6 +78,7 @@ overflight --alt 1650          # how high you are, for low, close traffic
 overflight --interval 10       # seconds between updates
 overflight --log ~/flights.csv # log each aircraft when it leaves the sky
 overflight --no-mouse          # leave the mouse for text selection
+overflight --bell              # ring the bell for unusual aircraft
 overflight --source local --url http://your-pi/data/aircraft.json
 overflight --source opensky    # uses OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET
 ```

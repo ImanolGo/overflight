@@ -75,6 +75,9 @@ pub struct App {
     pub iss_pass: Option<satellite::VisiblePass>,
     iss_pass_computed_at: f64,
     iss_pass_notified: bool,
+    /// Ring the terminal bell when an unusual aircraft appears.
+    bell: bool,
+    ring_pending: bool,
     /// Preferred display units.
     pub units: Units,
     /// Extra rare type codes from the config, on top of the built-in ones.
@@ -118,6 +121,8 @@ impl App {
             iss_pass: None,
             iss_pass_computed_at: f64::NEG_INFINITY,
             iss_pass_notified: false,
+            bell: false,
+            ring_pending: false,
             units: Units::Metric,
             rare_types: Vec::new(),
             min_elevation_deg: 0.0,
@@ -156,6 +161,9 @@ impl App {
                 track.unusual = unusual;
                 if let Some(reason) = unusual {
                     self.notification = Some((format!("{} · {reason}", track.label()), now_s));
+                    if self.bell {
+                        self.ring_pending = true;
+                    }
                 }
                 self.tracks.push(track);
             }
@@ -186,6 +194,16 @@ impl App {
     /// Look up the selected callsign's route in the background.
     pub fn set_route_looker(&mut self, looker: route::Looker) {
         self.route_looker = Some(looker);
+    }
+
+    /// Ring the terminal bell when an unusual aircraft appears.
+    pub fn set_bell(&mut self, bell: bool) {
+        self.bell = bell;
+    }
+
+    /// Whether the bell should ring now (and clear the request).
+    pub fn take_ring(&mut self) -> bool {
+        std::mem::take(&mut self.ring_pending)
     }
 
     fn log_departure(&mut self, track: &Track, utc_s: f64) {
@@ -474,6 +492,17 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("DLH4AB"), "{text}");
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn the_bell_rings_for_unusual_aircraft() {
+        let mut app = App::new(query(), "test");
+        app.set_bell(true);
+        let mut observation = observation("mil", 52.6, 13.5);
+        observation.military = true;
+        app.apply(&[observation], 0.0);
+        assert!(app.take_ring(), "expected a bell request");
+        assert!(!app.take_ring(), "the request is cleared once taken");
     }
 
     #[test]

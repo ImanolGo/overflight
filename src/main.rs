@@ -1,6 +1,7 @@
 //! overflight: see the aircraft flying above you as a live sky view.
 
 use std::cmp::Ordering;
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -116,6 +117,10 @@ struct Cli {
     #[arg(long)]
     no_mouse: bool,
 
+    /// Ring the terminal bell when an unusual aircraft appears.
+    #[arg(long)]
+    bell: bool,
+
     /// Fetch once, print a table of aircraft, then exit.
     #[arg(long, hide = true)]
     dump: bool,
@@ -157,6 +162,7 @@ struct Settings {
     screensaver: bool,
     log: Option<PathBuf>,
     no_mouse: bool,
+    bell: bool,
 }
 
 impl Settings {
@@ -243,6 +249,7 @@ impl Settings {
             screensaver: cli.screensaver,
             log: cli.log.clone(),
             no_mouse: cli.no_mouse,
+            bell: cli.bell,
         })
     }
 }
@@ -409,6 +416,8 @@ fn run_live(settings: &Settings) -> Result<()> {
     app.units = settings.units;
     app.min_elevation_deg = settings.min_elevation;
     app.rare_types = settings.rare_types.clone();
+    // Never beep during the offline demo.
+    app.set_bell(settings.bell && !settings.demo);
     if let Some(path) = &settings.log {
         app.set_logger(logbook::Logger::new(path));
     }
@@ -534,6 +543,11 @@ fn event_loop(
             }
         }
         app.update(now_s, utc_s);
+        if app.take_ring() {
+            let mut stdout = std::io::stdout();
+            let _ = stdout.write_all(b"\x07");
+            let _ = stdout.flush();
+        }
         terminal.draw(|frame| render::render(frame, app))?;
 
         let frame_interval = if app.tracks.is_empty() {
