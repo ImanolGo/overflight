@@ -5,8 +5,8 @@ expression: buffer_text(terminal.backend().buffer())
                                                   N
                                                 ⢀⣀⣀⡀
                                        ⢀⣀⠤⠔⠒⠊⠉⠉⠉⠁  ⠈⠉⠉⠉⠑⠒⠢⠤⣀⡀
-                                    ⡠⠔⠊⠁                    ⡈⠑⠢⢄
-                                ⢀⡠⠖⠉         ↙ AAL9600-  → LO→3BAW87AM-
+                                    ⡠⠔⠊⠁                    ⠈⠑⠢⢄
+                                ⢀⡠⠖⠉         ↙ AAL9600-  → LOG39D-105+
                               ⢀⡔⠊                              ↗ SHT19D-
                             ⢀⡰⠃ ⢀           ⣀⡠⠤⠤⠤⠒⠒⠤⠤⠤⢄⣀             ⠘⢆⡀
                            ⡠⠎  ↖⠈↖IEZY42MY-⠉            ⠉⠓⢦⣄           ⠱⢄
@@ -33,4 +33,4 @@ expression: buffer_text(terminal.backend().buffer())
                                        ⠈⠉⠒⠢⠤⢄⣀⣀⣀⡀  ⢀⣠↗⣀EIX60P+
                                                 ⠈⠉⠉⠁
                                                   S
-demo · 27 aircraft · updated 0.6s ago
+demo · 26 aircraft · updated 0.6s ago

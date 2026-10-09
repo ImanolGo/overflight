@@ -59,6 +59,7 @@ for that path on macOS and Windows) so you don't have to type it every time:
 ```toml
 lat = 52.52
 lon = 13.40
+alt_m = 0          # how high you are, in metres
 radius_km = 80     # how far out to look
 units = "metric"   # or "imperial"
 min_elevation = 0  # ignore planes lower than this
@@ -73,6 +74,7 @@ overflight --demo              # recorded traffic, no network needed
 overflight --screensaver       # any key exits
 overflight --min-elevation 10  # ignore planes that are low on the horizon
 overflight --radius-km 40      # look closer to home
+overflight --alt 1650          # how high you are, for low, close traffic
 overflight --interval 10       # seconds between updates
 overflight --source local --url http://your-pi/data/aircraft.json
 overflight --source opensky    # uses OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET

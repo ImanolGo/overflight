@@ -83,6 +83,9 @@ impl RawAircraft {
         let lon = self.lon?;
 
         let on_ground = self.alt_baro.as_ref().is_some_and(Altitude::is_ground);
+        // alt_baro is pressure altitude (close to height above sea level) and
+        // alt_geom is GNSS height above the ellipsoid; at this scale the
+        // difference does not matter, so prefer the geometric one.
         let alt_m = self
             .alt_geom
             .as_ref()

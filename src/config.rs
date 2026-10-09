@@ -63,6 +63,8 @@ impl Units {
 pub struct FileConfig {
     pub lat: Option<f64>,
     pub lon: Option<f64>,
+    /// Observer height above sea level, in metres.
+    pub alt_m: Option<f64>,
     pub radius_km: Option<f64>,
     pub units: Option<Units>,
     pub min_elevation: Option<f64>,

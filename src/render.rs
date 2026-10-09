@@ -908,6 +908,7 @@ mod tests {
                 lat: 52.52,
                 lon: 13.40,
                 radius_km: 80.0,
+                alt_m: 0.0,
             },
             "test",
         );
@@ -930,6 +931,7 @@ mod tests {
                 lat: 52.52,
                 lon: 13.40,
                 radius_km: 80.0,
+                alt_m: 0.0,
             },
             "airplanes.live",
         );
@@ -954,6 +956,7 @@ mod tests {
                 lat: 0.0,
                 lon: 0.0,
                 radius_km: 1.0,
+                alt_m: 0.0,
             },
             "test",
         );

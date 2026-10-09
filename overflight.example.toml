@@ -12,6 +12,10 @@
 lat = 52.52
 lon = 13.40
 
+# How high you are above sea level, in metres (default 0). Only matters for
+# low, close traffic; get it roughly right for approaches and helicopters.
+# alt_m = 0
+
 # How far out to look, in kilometres.
 radius_km = 80
 

@@ -60,6 +60,7 @@ impl FixtureProvider {
                 lat: doc.observer.lat,
                 lon: doc.observer.lon,
                 radius_km: doc.observer.radius_km,
+                alt_m: 0.0,
             },
             interval: Duration::from_secs_f64(doc.interval_s.max(0.001)),
             frames: doc.frames.into_iter().map(|frame| frame.response).collect(),

@@ -123,6 +123,11 @@ impl App {
     pub fn apply(&mut self, aircraft: &[Aircraft], now_s: f64) {
         let observer = self.query.observer();
         for observation in aircraft {
+            // Skip ground traffic and anything without a height: both would
+            // otherwise be placed at sea level and either hidden or drawn wrong.
+            if observation.on_ground || observation.alt_m.is_none() {
+                continue;
+            }
             if self.elevation_deg(observation) < self.min_elevation_deg {
                 continue;
             }
@@ -252,6 +257,7 @@ mod tests {
             lat: 52.52,
             lon: 13.40,
             radius_km: 80.0,
+            alt_m: 0.0,
         }
     }
 
@@ -313,6 +319,17 @@ mod tests {
         let first: Vec<f64> = app.stars.iter().map(|star| star.east).collect();
         let second: Vec<f64> = again.stars.iter().map(|star| star.east).collect();
         assert_eq!(first, second, "star field must be deterministic");
+    }
+
+    #[test]
+    fn ground_and_unknown_altitude_are_skipped() {
+        let mut app = App::new(query(), "test");
+        let mut on_ground = observation("ground", 52.53, 13.41);
+        on_ground.on_ground = true;
+        let mut no_altitude = observation("unknown", 52.53, 13.41);
+        no_altitude.alt_m = None;
+        app.apply(&[on_ground, no_altitude], 0.0);
+        assert_eq!(app.live_count(), 0);
     }
 
     #[test]

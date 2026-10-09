@@ -75,6 +75,10 @@ struct Cli {
     #[arg(long, allow_negative_numbers = true, value_name = "DEGREES")]
     lon: Option<f64>,
 
+    /// Observer height above sea level, in metres.
+    #[arg(long, allow_negative_numbers = true, value_name = "METRES")]
+    alt: Option<f64>,
+
     /// Where the aircraft data comes from [default: airplanes-live].
     #[arg(long, value_enum, value_name = "SOURCE")]
     source: Option<SourceArg>,
@@ -125,6 +129,7 @@ struct Cli {
 struct Settings {
     lat: Option<f64>,
     lon: Option<f64>,
+    alt_m: f64,
     radius_km: f64,
     units: Units,
     min_elevation: f64,
@@ -155,6 +160,10 @@ impl Settings {
         Ok(Self {
             lat: cli.lat.or(file.and_then(|config| config.lat)),
             lon: cli.lon.or(file.and_then(|config| config.lon)),
+            alt_m: cli
+                .alt
+                .or(file.and_then(|config| config.alt_m))
+                .unwrap_or(0.0),
             radius_km: cli
                 .radius_km
                 .or(file.and_then(|config| config.radius_km))
@@ -227,6 +236,7 @@ fn build_provider(settings: &Settings) -> Result<(Box<dyn Provider>, Query)> {
         lat,
         lon,
         radius_km: settings.radius_km,
+        alt_m: settings.alt_m,
     };
     let client = providers::http_client()?;
     let recorder = settings.record.clone().map(Recorder::new);
@@ -580,6 +590,7 @@ mod tests {
                 lat: 0.0,
                 lon: 0.0,
                 radius_km: 1.0,
+                alt_m: 0.0,
             },
             "test",
         );

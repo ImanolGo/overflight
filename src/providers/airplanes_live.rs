@@ -95,6 +95,7 @@ mod tests {
             lat: 51.4703,
             lon: -0.4543,
             radius_km: 37.0,
+            alt_m: 0.0,
         };
         // 37 km / 1.852 = 19.98 nm, rounded up.
         assert_eq!(
@@ -109,6 +110,7 @@ mod tests {
             lat: 0.0,
             lon: 0.0,
             radius_km: 1000.0,
+            alt_m: 0.0,
         };
         assert!(point_url("http://x", &query).ends_with("/250"));
     }

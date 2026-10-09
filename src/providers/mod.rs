@@ -117,13 +117,15 @@ pub struct Query {
     pub lat: f64,
     pub lon: f64,
     pub radius_km: f64,
+    /// Observer height above sea level, in metres.
+    pub alt_m: f64,
 }
 
 impl Query {
     /// The observer's position.
     #[must_use]
     pub const fn observer(&self) -> GeoPoint {
-        GeoPoint::new(self.lat, self.lon, 0.0)
+        GeoPoint::new(self.lat, self.lon, self.alt_m)
     }
 
     /// Whether an aircraft lies within the query radius, by ground distance.

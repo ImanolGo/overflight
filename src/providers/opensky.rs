@@ -371,6 +371,7 @@ mod tests {
             lat: 52.52,
             lon: 13.40,
             radius_km: 80.0,
+            alt_m: 0.0,
         }
     }
 

@@ -229,4 +229,14 @@ mod tests {
         assert_abs_diff_eq!(sky_y, 0.0, epsilon = 1e-9);
         assert_abs_diff_eq!(map_y, 0.0, epsilon = 1e-9);
     }
+
+    #[test]
+    fn observer_altitude_puts_low_traffic_near_the_horizon() {
+        // Denver, 1650 m: a plane on approach 5 km away at 1830 m is about 2°
+        // up, not the 20° you get by pretending the observer is at sea level.
+        let observer = GeoPoint::new(39.7392, -104.9903, 1650.0);
+        let target = destination(observer, 0.0, 5000.0, 1830.0);
+        let azel = az_el(observer, target);
+        assert_abs_diff_eq!(azel.elevation_deg, 2.0, epsilon = 0.5);
+    }
 }
