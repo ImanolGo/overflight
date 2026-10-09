@@ -800,6 +800,21 @@ fn status_line(app: &App) -> Line<'static> {
             base,
         ));
     }
+    if (-18.0..0.0).contains(&app.sun_elevation_deg)
+        && let Some(pass) = &app.iss_pass
+    {
+        let utc = crate::sun::Utc::from_unix_seconds(pass.start_unix as i64);
+        spans.push(Span::styled(
+            format!(
+                " · ISS pass {} {:02}:{:02} UTC, {:.0}° up",
+                compass_word(pass.azimuth_deg),
+                utc.hour,
+                utc.minute,
+                pass.max_elevation_deg
+            ),
+            base,
+        ));
+    }
     if app.satellites_stale {
         spans.push(Span::styled(" · satellite data out of date", base));
     }

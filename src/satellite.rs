@@ -13,6 +13,8 @@ use sgp4::chrono::NaiveDateTime;
 use sgp4::{Constants, Elements};
 
 use crate::geo::{self, GeoPoint};
+use crate::sky;
+use crate::sun::{self, Utc};
 
 /// The default Celestrak group: crewed stations, including the ISS.
 pub const DEFAULT_GROUP: &str = "stations";
@@ -69,6 +71,77 @@ pub fn is_sunlit(position_km: [f64; 3], sun: [f64; 3]) -> bool {
         + position_km[2] * position_km[2];
     let perpendicular_sq = radius_sq - along * along;
     perpendicular_sq > EARTH_RADIUS_KM * EARTH_RADIUS_KM
+}
+
+/// The next visible pass of a satellite.
+#[derive(Debug, Clone, Copy)]
+pub struct VisiblePass {
+    /// When the pass starts, Unix seconds.
+    pub start_unix: f64,
+    /// The highest elevation the satellite reaches, degrees.
+    pub max_elevation_deg: f64,
+    /// The azimuth at that highest point, degrees.
+    pub azimuth_deg: f64,
+}
+
+/// Find the next visible ISS pass for an observer over the next 12 hours.
+///
+/// A pass counts as visible when the satellite is at least 10° up, in
+/// sunlight, and the observer's sky is dark enough (sun below civil twilight).
+#[must_use]
+pub fn next_visible_pass(
+    satellites: &[Satellite],
+    observer: GeoPoint,
+    from_unix: f64,
+) -> Option<VisiblePass> {
+    let iss = satellites
+        .iter()
+        .find(|satellite| satellite.name.contains("ISS"))?;
+
+    const STEP_S: f64 = 30.0;
+    const HOURS: f64 = 12.0;
+    const MIN_ELEVATION: f64 = 10.0;
+    const DARK_ENOUGH: f64 = -6.0;
+
+    let mut pass: Option<VisiblePass> = None;
+    let mut time = from_unix;
+    let end = from_unix + HOURS * 3600.0;
+
+    while time <= end {
+        let utc = Utc::from_unix_seconds(time as i64);
+        let sun = sky::sun_direction(utc);
+        let observer_sun = sun::solar_elevation_deg(observer.lat_deg, observer.lon_deg, utc);
+        let visible = observer_sun < DARK_ENOUGH
+            && datetime(time as i64)
+                .and_then(|naive| iss.position(naive, observer, sun))
+                .is_some_and(|position| position.sunlit && position.elevation_deg >= MIN_ELEVATION);
+
+        if visible {
+            if let Some(position) =
+                datetime(time as i64).and_then(|naive| iss.position(naive, observer, sun))
+            {
+                match &mut pass {
+                    Some(current) if position.elevation_deg > current.max_elevation_deg => {
+                        current.max_elevation_deg = position.elevation_deg;
+                        current.azimuth_deg = position.azimuth_deg;
+                    }
+                    None => {
+                        pass = Some(VisiblePass {
+                            start_unix: time,
+                            max_elevation_deg: position.elevation_deg,
+                            azimuth_deg: position.azimuth_deg,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        } else if pass.is_some() {
+            return pass;
+        }
+
+        time += STEP_S;
+    }
+    pass
 }
 
 impl Satellite {
@@ -491,5 +564,21 @@ mod tests {
         assert!(!is_sunlit([-7000.0, 0.0, 0.0], sun));
         // Behind, but far enough off-axis to clear the shadow.
         assert!(is_sunlit([-7000.0, 8000.0, 0.0], sun));
+    }
+
+    #[test]
+    fn iss_pass_prediction_is_sane() {
+        let satellites = embedded().unwrap();
+        let iss = satellites
+            .iter()
+            .find(|satellite| satellite.name.contains("ISS"))
+            .unwrap();
+        let start = iss.elements.datetime.and_utc().timestamp() as f64;
+        let observer = GeoPoint::new(51.47, -0.4543, 0.0);
+        if let Some(pass) = next_visible_pass(&satellites, observer, start) {
+            assert!(pass.start_unix >= start);
+            assert!(pass.max_elevation_deg >= 10.0);
+            assert!((0.0..360.0).contains(&pass.azimuth_deg));
+        }
     }
 }

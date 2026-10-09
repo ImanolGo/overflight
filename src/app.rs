@@ -71,6 +71,10 @@ pub struct App {
     route_looker: Option<route::Looker>,
     /// The selected aircraft's route, once known.
     pub selected_route: Option<route::Route>,
+    /// The next visible ISS pass, recomputed occasionally.
+    pub iss_pass: Option<satellite::VisiblePass>,
+    iss_pass_computed_at: f64,
+    iss_pass_notified: bool,
     /// Preferred display units.
     pub units: Units,
     /// Extra rare type codes from the config, on top of the built-in ones.
@@ -111,6 +115,9 @@ impl App {
             logger: None,
             route_looker: None,
             selected_route: None,
+            iss_pass: None,
+            iss_pass_computed_at: f64::NEG_INFINITY,
+            iss_pass_notified: false,
             units: Units::Metric,
             rare_types: Vec::new(),
             min_elevation_deg: 0.0,
@@ -199,6 +206,7 @@ impl App {
         self.satellites_fetched_at = Some(fetched_at);
         // Force a recomputation with the new elements.
         self.satellite_positions_at = f64::NEG_INFINITY;
+        self.iss_pass_computed_at = f64::NEG_INFINITY;
     }
 
     /// Advance every track, recompute the sun, and drop tracks that have gone
@@ -276,6 +284,20 @@ impl App {
             (Some(looker), Some(callsign)) => looker.get(callsign, utc_s).cloned(),
             _ => None,
         };
+
+        if utc_s - self.iss_pass_computed_at >= 300.0 {
+            self.iss_pass = satellite::next_visible_pass(&self.satellites, observer, utc_s);
+            self.iss_pass_computed_at = utc_s;
+            self.iss_pass_notified = false;
+        }
+        if let Some(pass) = &self.iss_pass
+            && utc_s >= pass.start_unix
+            && utc_s - pass.start_unix < 60.0
+            && !self.iss_pass_notified
+        {
+            self.notification = Some(("ISS visible pass starting".to_string(), utc_s));
+            self.iss_pass_notified = true;
+        }
     }
 
     /// Number of aircraft currently tracked.
