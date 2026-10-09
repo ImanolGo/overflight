@@ -2,10 +2,22 @@
 name = "overflight"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95"
 description = "See the aircraft flying above you, as a live sky view in your terminal."
-repository = "https://github.com/ImanolGo/overflight"
 license = "MIT"
+authors = ["ImanolGo <ImanolGo@users.noreply.github.com>"]
+repository = "https://github.com/ImanolGo/overflight"
 readme = "README.md"
+keywords = ["tui", "ads-b", "flight", "tracker", "ratatui"]
+categories = ["command-line-utilities"]
+# Keep the demo GIF and CI config out of the published crate.
+exclude = ["demo.gif", ".github/"]
+
+[package.metadata.wix]
+upgrade-guid = "d8ed235a-15c8-41fb-a7ec-9e00581238d1"
+path-guid = "dbc0fb17-972e-4d49-a33c-14bb1d59cce0"
+license = false
+eula = false
 
 [dependencies]
 ratatui = "0.30"
@@ -25,4 +37,25 @@ approx = "0.5"
 
 [profile.release]
 lto = true
+codegen-units = 1
 strip = true
+
+# The profile that 'dist' will build with.
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+# Metadata for `cargo deb` (the .deb attached to each release).
+[package.metadata.deb]
+maintainer = "ImanolGo <ImanolGo@users.noreply.github.com>"
+copyright = "2026, ImanolGo"
+license-file = ["LICENSE", "4"]
+section = "utils"
+priority = "optional"
+depends = "$auto"
+extended-description = "A live sky view of the aircraft flying above you, drawn as if you were lying on your back looking straight up."
+assets = [
+    ["target/release/overflight", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/overflight/README.md", "644"],
+    ["overflight.example.toml", "usr/share/doc/overflight/config.toml.example", "644"],
+]

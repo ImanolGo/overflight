@@ -1,0 +1,57 @@
+name: Debian package
+
+# Build a .deb with cargo-deb and attach it to the release.
+#
+# This runs on the tag push (not on `release: published`, because a release
+# created by another workflow's GITHUB_TOKEN does not trigger further
+# workflows). It builds, then waits for the dist release to appear before
+# uploading. Can also be dispatched by hand for an existing tag.
+on:
+  push:
+    tags: ["v[0-9]*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to attach the .deb to (e.g. v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-deb
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+
+      - name: Build .deb
+        run: cargo deb
+
+      - name: Wait for the release
+        run: |
+          for _ in $(seq 1 60); do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "release $TAG is up"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "release $TAG never appeared" >&2
+          exit 1
+
+      - name: Attach to the release
+        run: gh release upload "$TAG" target/debian/*.deb --clobber

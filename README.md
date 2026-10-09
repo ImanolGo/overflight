@@ -1,8 +1,16 @@
 # overflight
 
+[![crates.io](https://img.shields.io/crates/v/overflight.svg)](https://crates.io/crates/overflight)
+[![docs.rs](https://docs.rs/overflight/badge.svg?v=2)](https://docs.rs/overflight)
+[![CI](https://github.com/ImanolGo/overflight/actions/workflows/ci.yml/badge.svg)](https://github.com/ImanolGo/overflight/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ImanolGo/overflight)](https://github.com/ImanolGo/overflight/releases)
+[![License: MIT](https://img.shields.io/crates/l/overflight.svg)](LICENSE)
+
 Look up from your terminal.
 
-![overflight: aircraft drifting across a starry night sky, with a detail box for the selected plane](demo.gif)
+![overflight: aircraft drifting across a starry night sky, with a detail box for the selected plane](https://raw.githubusercontent.com/ImanolGo/overflight/main/demo.gif)
+
+> **Status:** 0.1 — usable and still growing. The plan lives in [PLAN.md](PLAN.md); see [DEVELOPMENT.md](DEVELOPMENT.md) for how it is built and released.
 
 overflight shows the aircraft flying above you right now, drawn as if you were lying on your back in a field and looking straight up. The edge of the circle is the horizon, the middle is directly overhead, and every plane drifts across it in real time with its callsign trailing behind. During the day the sky is blue, at dusk it fades, and at night you get stars.
 
