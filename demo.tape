@@ -22,15 +22,21 @@ Type "./target/release/overflight --demo --time 2024-12-21T00:00:00Z"
 Enter
 
 Sleep 5s
-Type "c"
+# The guide explains the chart without stopping live tracking.
+Type "?"
 Sleep 4s
+Escape
 Type "c"
-Sleep 1s
-Tab
 Sleep 3s
+Tab
+Sleep 4s
+Backspace
 Type "h"
-Sleep 2s
+Sleep 3s
 Right
 Sleep 3s
+# Return overhead, then remove instruments and callsigns for a quiet sky.
+Type "hvl"
+Sleep 4s
 Type "q"
 Sleep 1s

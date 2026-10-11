@@ -4,6 +4,39 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-11
+
+### Added
+
+- A readable instrument header showing time-of-day palette, orientation,
+  radius and demo mode, a two-row data-status strip and visible key hints.
+- An in-app sky guide (`?`) explaining the projection, colours, symbols and
+  controls. `?` / `Esc` closes it; tracking continues while the guide is open.
+- Quiet view (`v`) hides instruments and details without interrupting tracking;
+  `Backspace` clears the selection. Screensaver mode starts without instruments
+  or callsigns.
+- Click selection in horizon mode, as well as the overhead sky view.
+
+### Changed
+
+- Subtle sky gradients, a clustered decorative skyline with warm night windows,
+  and opaque, rounded flight-detail panels that no longer cover the north label.
+- Selected aircraft get a stronger highlight and a teal trail to make them
+  easier to follow through busy skies.
+- README introduction, offline quick start and demo GIF highlight spotting,
+  exploring and unwinding, with an explicit non-navigation disclaimer.
+
+### Fixed
+
+- Hit-testing shares the renderer's viewport and accounts for its origin,
+  including when instruments are hidden; hidden daytime satellites cannot be
+  clicked, and the sky guide blocks selection behind it.
+- A successfully sampled empty sky is identified as quiet, rather than still
+  waiting for data. Fetch errors and stale TLE warnings precede optional pass
+  predictions in the status strip.
+
+[0.6.0]: https://github.com/ImanolGo/overflight/releases/tag/v0.6.0
+
 ## [0.5.0] - 2026-10-09
 
 ### Added

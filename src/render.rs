@@ -20,7 +20,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::canvas::{Canvas, Circle, Line as CanvasLine, Points};
-use ratatui::widgets::{Block, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 
 use crate::app::App;
 use crate::geo;
@@ -108,6 +108,20 @@ const BODY_COLOR: Rgb = (245.0, 235.0, 190.0);
 
 /// Colour for satellites.
 const SATELLITE_COLOR: Rgb = (190.0, 215.0, 255.0);
+const ACCENT: Rgb = (130.0, 220.0, 220.0);
+
+/// Header, sky, data status and controls. Rendering and hit-testing must use
+/// exactly the same viewport, including when the instruments are hidden.
+fn view_areas(area: Rect, instruments: bool) -> [Rect; 4] {
+    let row = u16::from(instruments);
+    Layout::vertical([
+        Constraint::Length(row),
+        Constraint::Min(1),
+        Constraint::Length(row * 2),
+        Constraint::Length(row),
+    ])
+    .areas(area)
+}
 
 impl Palette {
     /// Pick the palette for a sun elevation in degrees.
@@ -406,11 +420,10 @@ impl Compass {
 /// cells. Returns whether something was selected.
 pub fn select_at(app: &mut App, area: Rect, click_col: u16, click_row: u16) -> bool {
     const RADIUS_CELLS: f64 = 4.0;
-    if app.horizon {
+    if app.show_help || area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         return false;
     }
-    let [sky_area, _status] =
-        Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(area);
+    let [_, sky_area, _, _] = view_areas(area, app.show_interface);
     if click_col < sky_area.left()
         || click_col >= sky_area.right()
         || click_row < sky_area.top()
@@ -422,6 +435,7 @@ pub fn select_at(app: &mut App, area: Rect, click_col: u16, click_row: u16) -> b
 
     let mut best: Option<(f64, String, bool)> = None;
     let mut consider = |cell: (u16, u16), id: String, satellite: bool| {
+        let cell = (sky_area.x + cell.0, sky_area.y + cell.1);
         let distance =
             f64::from(cell.0.abs_diff(click_col)).hypot(f64::from(cell.1.abs_diff(click_row)));
         if best
@@ -437,11 +451,21 @@ pub fn select_at(app: &mut App, area: Rect, click_col: u16, click_row: u16) -> b
         if elevation < 0.0 {
             continue;
         }
-        let (x, y) = geo::project(azimuth, elevation, app.sky_orientation);
-        consider(geometry.direction_cell(x, y), track.id.clone(), false);
+        let cell = if app.horizon {
+            horizon_cell(sky_area, azimuth, elevation, app.view_azimuth_deg)
+        } else {
+            let (x, y) = geo::project(azimuth, elevation, app.sky_orientation);
+            Some(geometry.direction_cell(x, y))
+        };
+        if let Some(cell) = cell {
+            consider(cell, track.id.clone(), false);
+        }
     }
     for satellite in &app.satellite_positions {
-        if satellite.elevation_deg < 0.0 {
+        if satellite.elevation_deg < 0.0
+            || app.horizon
+            || Palette::for_sun_elevation(app.sun_elevation_deg).kind == SkyKind::Day
+        {
             continue;
         }
         let (x, y) = geo::project(
@@ -477,11 +501,17 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     if app.horizon {
         render_horizon(frame, area, app);
+        if app.show_help {
+            render_guide(
+                frame,
+                area,
+                &Palette::for_sun_elevation(app.sun_elevation_deg),
+            );
+        }
         return;
     }
 
-    let [sky_area, status_area] =
-        Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(area);
+    let [_, sky_area, _, _] = view_areas(area, app.show_interface);
     let geometry = SkyGeometry::new(sky_area.width, sky_area.height);
     let palette = Palette::for_sun_elevation(app.sun_elevation_deg);
     let (cx, cy) = geometry.center;
@@ -553,12 +583,20 @@ pub fn render(frame: &mut Frame, app: &App) {
             if app.show_trails {
                 for track in &app.tracks {
                     let alpha = track.alpha(app.now_s);
+                    let selected = app.selected.as_deref() == Some(track.id.as_str());
                     for (enu, age) in track.trail(app.now_s) {
                         if let Some((x, y)) = disc_position(&enu, app.sky_orientation) {
                             let (x, y) = geometry.direction_canvas(x, y);
                             ctx.draw(&Points {
                                 coords: &[(x, y)],
-                                color: trail_color(&palette, age, alpha),
+                                color: if selected {
+                                    dim(
+                                        ACCENT,
+                                        alpha * (1.0 - age / crate::track::TRAIL_SECONDS).max(0.15),
+                                    )
+                                } else {
+                                    trail_color(&palette, age, alpha)
+                                },
                             });
                         }
                     }
@@ -567,6 +605,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         });
 
     frame.render_widget(canvas, sky_area);
+    shade_sky(frame.buffer_mut(), sky_area, &palette, false);
 
     let buffer = frame.buffer_mut();
     let (origin_x, origin_y) = (sky_area.left(), sky_area.top());
@@ -582,6 +621,10 @@ pub fn render(frame: &mut Frame, app: &App) {
     }
 
     let mut taken = vec![false; usize::from(sky_area.width) * usize::from(sky_area.height)];
+    for compass in Compass::ALL {
+        let (col, row) = geometry.compass_cell(compass, app.sky_orientation);
+        mark_cell(&mut taken, sky_area.width, col, row);
+    }
     let mut labels: Vec<(u16, u16, String, Style, bool)> = Vec::new();
 
     // The Moon, bright planets and satellites first, so plane labels can avoid
@@ -647,7 +690,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         let selected = app.selected.as_deref() == Some(track.id.as_str());
         let mut style = Style::default().fg(colour);
         if selected {
-            style = style.add_modifier(Modifier::BOLD);
+            style = style.add_modifier(Modifier::BOLD).bg(rgb(palette.ring));
         }
         let glyph = aircraft_glyph(track, app.sky_orientation);
         buffer.set_string(origin_x + col, origin_y + row, glyph.to_string(), style);
@@ -670,17 +713,20 @@ pub fn render(frame: &mut Frame, app: &App) {
         render_no_data(frame, sky_area, app, &palette);
     }
 
-    if let Some(satellite) = app.selected_satellite() {
-        render_satellite_detail(frame, sky_area, satellite, &palette);
-    } else if let Some(track) = app.selected_track() {
-        render_detail(frame, sky_area, track, app, &palette);
+    if app.show_interface {
+        if let Some(satellite) = app.selected_satellite() {
+            render_satellite_detail(frame, sky_area, satellite, &palette);
+        } else if let Some(track) = app.selected_track() {
+            render_detail(frame, sky_area, track, app, &palette);
+        }
+        if let Some(message) = app.active_notification() {
+            render_notification(frame, sky_area, message, &palette);
+        }
     }
-
-    if let Some(message) = app.active_notification() {
-        render_notification(frame, sky_area, message, &palette);
+    render_instruments(frame, area, app, &palette);
+    if app.show_help {
+        render_guide(frame, area, &palette);
     }
-
-    frame.render_widget(Paragraph::new(status_line(app)), status_area);
 }
 
 /// A transient banner for an unusual aircraft.
@@ -720,6 +766,10 @@ fn render_no_data(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
             lines.push(Line::from(format!("No aircraft from {}", app.source)));
             lines.push(Line::from(error.clone()));
             lines.push(Line::from("Try: overflight --demo"));
+        }
+        None if app.last_update_s.is_some() => {
+            lines.push(Line::from("A quiet patch of sky. No aircraft in view."));
+            lines.push(Line::from("Try a wider radius or a lower --min-elevation."));
         }
         None => lines.push(Line::from(format!(
             "Looking for aircraft from {}…",
@@ -796,12 +846,23 @@ fn render_info_box(frame: &mut Frame, area: Rect, lines: Vec<Line<'_>>, palette:
     let width = 32.min(area.width.saturating_sub(2));
     let height = u16::try_from(lines.len())
         .unwrap_or(u16::MAX)
-        .saturating_add(2);
-    let detail_area = Rect::new(area.x + 1, area.y + 1, width, height);
+        .saturating_add(2)
+        .min(area.height.saturating_sub(2));
+    let detail_area = Rect::new(
+        area.right() - width - 1,
+        area.bottom() - height - 1,
+        width,
+        height,
+    );
     let style = Style::default()
         .fg(rgb(palette.compass))
-        .bg(rgb(palette.background));
-    let block = Block::bordered().title(" Selected ").style(style);
+        .bg(rgb(panel_background(palette)));
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title(" Flight details ")
+        .border_style(Style::default().fg(rgb(ACCENT)))
+        .style(style);
+    frame.render_widget(Clear, detail_area);
     frame.render_widget(Paragraph::new(lines).block(block).style(style), detail_area);
 }
 
@@ -980,7 +1041,8 @@ fn place_labels(
 
 /// The bottom status line.
 fn status_line(app: &App) -> Line<'static> {
-    let base = Style::default().fg(named(Color::DarkGray));
+    let palette = Palette::for_sun_elevation(app.sun_elevation_deg);
+    let base = Style::default().fg(rgb(palette.compass));
     let mut spans = vec![Span::styled(
         format!("{} · {} aircraft", app.source, app.live_count()),
         base,
@@ -992,6 +1054,19 @@ fn status_line(app: &App) -> Line<'static> {
         )),
         None => spans.push(Span::styled(" · waiting for data", base)),
     }
+    // Failures and stale TLEs take precedence over optional pass predictions.
+    if let Some(error) = &app.last_error {
+        spans.push(Span::styled(
+            format!(" · {error}"),
+            Style::default().fg(alert_color(1.0)),
+        ));
+    }
+    if app.satellites_stale {
+        spans.push(Span::styled(
+            " · satellite data out of date",
+            Style::default().fg(alert_color(1.0)),
+        ));
+    }
     if let Some(pass) = &app.pass_prediction {
         let minutes = (pass.seconds / 60.0) as u64;
         let seconds = (pass.seconds % 60.0) as u64;
@@ -1000,7 +1075,7 @@ fn status_line(app: &App) -> Line<'static> {
                 " · {} will pass {:.0}° up in {minutes}:{seconds:02}",
                 pass.label, pass.elevation_deg
             ),
-            base,
+            Style::default().fg(rgb(ACCENT)),
         ));
     }
     if (-18.0..0.0).contains(&app.sun_elevation_deg)
@@ -1018,28 +1093,177 @@ fn status_line(app: &App) -> Line<'static> {
             base,
         ));
     }
-    if app.satellites_stale {
-        spans.push(Span::styled(" · satellite data out of date", base));
+    Line::from(spans)
+}
+
+fn panel_background(palette: &Palette) -> Rgb {
+    let (r, g, b) = palette.background;
+    (r * 0.65 + 6.0, g * 0.65 + 8.0, b * 0.65 + 12.0)
+}
+
+/// A restrained glow towards the horizon. This only changes background cells;
+/// star positions, geometry, trails and aircraft remain real data.
+fn shade_sky(buffer: &mut Buffer, area: Rect, palette: &Palette, horizon: bool) {
+    for y in area.y..area.bottom() {
+        let t = f64::from(y - area.y) / f64::from(area.height.saturating_sub(1).max(1));
+        let glow = if horizon {
+            t * t
+        } else {
+            (t * 2.0 - 1.0).powi(2)
+        } * 0.12;
+        let mix = |a: f64, b: f64| a + (b - a) * glow;
+        let background = rgb((
+            mix(palette.background.0, palette.horizon.0),
+            mix(palette.background.1, palette.horizon.1),
+            mix(palette.background.2, palette.horizon.2),
+        ));
+        for x in area.x..area.right() {
+            buffer[(x, y)].set_bg(background);
+        }
     }
-    if let Some(error) = &app.last_error {
-        spans.push(Span::styled(
-            format!(" · {error}"),
-            Style::default().fg(rgb((90.0, 70.0, 70.0))),
+}
+
+fn render_instruments(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
+    if !app.show_interface {
+        return;
+    }
+    let [header, _, status, controls] = view_areas(area, true);
+    let style = Style::default()
+        .bg(rgb(panel_background(palette)))
+        .fg(rgb(palette.compass));
+    let phase = match palette.kind {
+        SkyKind::Day => "day",
+        SkyKind::Twilight => "twilight",
+        SkyKind::Night => "night",
+    };
+    let orientation = if app.horizon {
+        format!("horizon · looking {}", compass_word(app.view_azimuth_deg))
+    } else if app.sky_orientation {
+        "sky · E left".to_string()
+    } else {
+        "map · E right".to_string()
+    };
+    let (radius, unit) = app.units.distance(app.query.radius_km);
+    let mut title = vec![
+        Span::styled(
+            " overflight ",
+            Style::default()
+                .fg(rgb(ACCENT))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(format!("· {phase} · {orientation}")),
+    ];
+    if area.width >= 76 {
+        title.push(Span::raw(format!(" · {radius:.0} {unit} radius")));
+    }
+    if app.source == "demo" {
+        title.push(Span::styled(
+            " · DEMO",
+            Style::default().fg(rgb((245.0, 200.0, 130.0))),
         ));
     }
-    Line::from(spans)
+    frame.render_widget(Paragraph::new(Line::from(title)).style(style), header);
+    frame.render_widget(
+        Paragraph::new(status_line(app))
+            .wrap(Wrap { trim: true })
+            .style(style),
+        status,
+    );
+    let hint = if area.width >= 76 {
+        " Tab inspect  Backspace clear  h horizon  v quiet  ? guide  q quit"
+    } else {
+        " Tab inspect  h horizon  ? guide"
+    };
+    frame.render_widget(Paragraph::new(hint).style(style), controls);
+}
+
+fn render_guide(frame: &mut Frame, area: Rect, palette: &Palette) {
+    let width = area.width.saturating_sub(2).min(66);
+    let height = area.height.saturating_sub(2).min(22);
+    let guide = Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    );
+    let style = Style::default()
+        .fg(rgb(palette.compass))
+        .bg(rgb(panel_background(palette)));
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title(" Sky guide ")
+        .border_style(Style::default().fg(rgb(ACCENT)))
+        .style(style);
+    let inner = block.inner(guide);
+    frame.render_widget(Clear, guide);
+    frame.render_widget(block, guide);
+    let [body, close] = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(inner);
+    let rows: &[&str] = if width < 60 || height < 20 {
+        &[
+            "Look up, not down.",
+            "Centre: overhead (90°)",
+            "Edge: horizon (0°)",
+            "Warm: low. Cool: high.",
+            "Tab: inspect a flight",
+            "h: side-on horizon",
+            "m: swap east / west",
+            "v: hide instruments",
+            "q: quit",
+        ]
+    } else {
+        &[
+            "Look up from your terminal.",
+            "",
+            "Centre = overhead. Edge = horizon. Rings = 30° / 60°.",
+            "Sky orientation puts east on the left, like a star chart.",
+            "Warm aircraft are low; cool aircraft are at cruise height.",
+            "Arrows show heading; + / - means climbing / descending.",
+            "Trails show the last minute, not a future flight path.",
+            "⊛ helicopter   ⌁ glider   ◯ balloon   ✦ satellite",
+            "Red highlights: unusual aircraft or emergency squawks.",
+            "",
+            "Tab / click    inspect an aircraft (click works in both views)",
+            "Backspace      clear the selection",
+            "h / ← / →      side-on horizon / turn your view",
+            "m / c          sky-map orientation / constellation lines",
+            "l / t / u      callsigns / trails / metric-imperial",
+            "v              hide instruments for a quiet sky",
+            "q              quit (tracking continues while reading the guide)",
+        ]
+    };
+    let lines: Vec<_> = rows
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            Line::from(Span::styled(
+                *row,
+                if i == 0 {
+                    Style::default()
+                        .fg(rgb(ACCENT))
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                },
+            ))
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines).style(style), body);
+    frame.render_widget(
+        Paragraph::new("? / Esc  back to the sky").style(style.add_modifier(Modifier::BOLD)),
+        close,
+    );
 }
 
 /// The side-on horizon view: a skyline, looking north, with planes rising over
 /// it and their height above the horizon shown directly.
 fn render_horizon(frame: &mut Frame, area: Rect, app: &App) {
-    let [sky_area, status_area] =
-        Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(area);
+    let [_, sky_area, _, _] = view_areas(area, app.show_interface);
     let palette = Palette::for_sun_elevation(app.sun_elevation_deg);
     frame.render_widget(
         Block::default().style(Style::default().bg(rgb(palette.background))),
         sky_area,
     );
+    shade_sky(frame.buffer_mut(), sky_area, &palette, true);
 
     let view = app.view_azimuth_deg;
 
@@ -1083,7 +1307,7 @@ fn render_horizon(frame: &mut Frame, area: Rect, app: &App) {
             let selected = app.selected.as_deref() == Some(track.id.as_str());
             let mut style = Style::default().fg(colour);
             if selected {
-                style = style.add_modifier(Modifier::BOLD);
+                style = style.add_modifier(Modifier::BOLD).bg(rgb(palette.ring));
             }
             buffer.set_string(
                 origin_x + col,
@@ -1107,12 +1331,14 @@ fn render_horizon(frame: &mut Frame, area: Rect, app: &App) {
         );
 
         let edge_style = Style::default().fg(rgb(palette.compass));
-        buffer.set_string(
-            origin_x,
-            origin_y,
-            format!("looking {}", compass_word(view)),
-            edge_style,
-        );
+        if !app.show_interface {
+            buffer.set_string(
+                origin_x,
+                origin_y,
+                format!("looking {}", compass_word(view)),
+                edge_style,
+            );
+        }
         let edge_row = origin_y + sky_area.height / 2;
         if left > 0 {
             buffer.set_string(origin_x, edge_row, format!("‹ {left}"), edge_style);
@@ -1128,22 +1354,22 @@ fn render_horizon(frame: &mut Frame, area: Rect, app: &App) {
     if app.tracks.is_empty() {
         render_no_data(frame, sky_area, app, &palette);
     }
-    if let Some(satellite) = app.selected_satellite() {
-        render_satellite_detail(frame, sky_area, satellite, &palette);
-    } else if let Some(track) = app.selected_track() {
-        render_detail(frame, sky_area, track, app, &palette);
+    if app.show_interface {
+        if let Some(satellite) = app.selected_satellite() {
+            render_satellite_detail(frame, sky_area, satellite, &palette);
+        } else if let Some(track) = app.selected_track() {
+            render_detail(frame, sky_area, track, app, &palette);
+        }
+        if let Some(message) = app.active_notification() {
+            render_notification(frame, sky_area, message, &palette);
+        }
     }
-    if let Some(message) = app.active_notification() {
-        render_notification(frame, sky_area, message, &palette);
-    }
-    frame.render_widget(Paragraph::new(status_line(app)), status_area);
+    render_instruments(frame, area, app, &palette);
 }
 
 /// A deterministic little skyline along the bottom of a horizon view.
 fn draw_skyline(buffer: &mut Buffer, area: Rect, palette: &Palette) {
-    let style = Style::default()
-        .fg(rgb(palette.ring))
-        .bg(rgb(palette.background));
+    let style = Style::default().fg(rgb(palette.ring));
     let base = area.bottom().saturating_sub(1);
     for x in 0..area.width {
         buffer.set_string(area.left() + x, base, "▁", style);
@@ -1153,13 +1379,31 @@ fn draw_skyline(buffer: &mut Buffer, area: Rect, palette: &Palette) {
     let mut column = 1u16;
     let mut index = 0usize;
     while column + 1 < area.width {
-        let height = HEIGHTS[index % HEIGHTS.len()];
+        let height = HEIGHTS[index % HEIGHTS.len()].min(area.height / 4);
+        let width = 2 + index as u16 % 3;
         for level in 0..height {
-            if base > area.top() + level {
-                buffer.set_string(area.left() + column, base - level, "█", style);
+            for offset in 0..width {
+                let x = column + offset;
+                if x < area.width && base > area.top() + level {
+                    let window = palette.kind != SkyKind::Day
+                        && level > 0
+                        && level + 1 < height
+                        && (usize::from(x) + index + usize::from(level)).is_multiple_of(4);
+                    let (glyph, style) = if window {
+                        (
+                            "▪",
+                            Style::default()
+                                .fg(dim((240.0, 190.0, 110.0), 0.6))
+                                .bg(rgb(palette.ring)),
+                        )
+                    } else {
+                        ("█", style)
+                    };
+                    buffer.set_string(area.left() + x, base - level, glyph, style);
+                }
             }
         }
-        column += 2;
+        column += width + 1;
         index += 1;
     }
 }
@@ -1466,6 +1710,200 @@ mod tests {
         assert_eq!(app.selected.as_deref(), Some("abc123"));
         // A click far from anything selects nothing new.
         assert!(!select_at(&mut app, area, 1, 1));
+    }
+
+    #[test]
+    fn hit_testing_tracks_the_viewport_origin_in_both_views_and_quiet_mode() {
+        for horizon in [false, true] {
+            for instruments in [false, true] {
+                let mut app = App::new(
+                    crate::providers::Query {
+                        lat: 52.52,
+                        lon: 13.40,
+                        radius_km: 80.0,
+                        alt_m: 0.0,
+                    },
+                    "test",
+                );
+                let aircraft = crate::providers::Aircraft {
+                    id: "abc123".into(),
+                    lat: 52.54,
+                    lon: 13.40,
+                    alt_m: Some(10_000.0),
+                    ..crate::providers::Aircraft::default()
+                };
+                app.apply(&[aircraft], 0.0);
+                app.horizon = horizon;
+                app.show_interface = instruments;
+                let area = Rect::new(5, 3, 80, 24);
+                let [_, sky_area, _, _] = view_areas(area, instruments);
+                let (azimuth, elevation, _) = app.tracks[0].az_el();
+                let (col, row) = if horizon {
+                    horizon_cell(sky_area, azimuth, elevation, app.view_azimuth_deg).unwrap()
+                } else {
+                    let (x, y) = geo::project(azimuth, elevation, app.sky_orientation);
+                    SkyGeometry::new(sky_area.width, sky_area.height).direction_cell(x, y)
+                };
+                assert!(select_at(
+                    &mut app,
+                    area,
+                    sky_area.x + col,
+                    sky_area.y + row
+                ));
+                assert_eq!(app.selected.as_deref(), Some("abc123"));
+                app.show_help = true;
+                assert!(!select_at(
+                    &mut app,
+                    area,
+                    sky_area.x + col,
+                    sky_area.y + row
+                ));
+            }
+        }
+    }
+
+    fn rendered(app: &App, width: u16, height: u16) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| render(frame, app)).unwrap();
+        buffer_text(terminal.backend().buffer())
+    }
+
+    #[test]
+    fn instruments_explain_orientation_and_demo_without_disclosing_coordinates() {
+        let app = demo_app(0.0);
+        let text = rendered(&app, 100, 32);
+        assert!(text.contains("overflight"));
+        assert!(text.contains("sky · E left"));
+        assert!(text.contains("DEMO"));
+        assert!(text.contains("radius"));
+        assert!(text.contains("? guide"));
+        assert!(!text.contains("51.47"));
+    }
+
+    #[test]
+    fn quiet_view_hides_instruments_and_details_in_both_projections() {
+        let mut app = demo_app(0.0);
+        app.select_next();
+        assert!(app.selected_track().is_some());
+        assert!(rendered(&app, 100, 32).contains("Flight details"));
+        app.show_interface = false;
+        for horizon in [false, true] {
+            app.horizon = horizon;
+            let text = rendered(&app, 100, 32);
+            for instrument in ["overflight", "Flight details", "updated", "? guide"] {
+                assert!(!text.contains(instrument));
+            }
+            assert!(
+                app.tracks.iter().any(|track| text.contains(track.label())),
+                "quiet view keeps callsigns unless toggled off"
+            );
+        }
+    }
+
+    #[test]
+    fn guide_adapts_to_small_terminals_and_both_views() {
+        let mut app = demo_app(0.0);
+        app.show_help = true;
+        for horizon in [false, true] {
+            app.horizon = horizon;
+            for (width, height) in [(30, 15), (60, 20), (100, 32)] {
+                let text = rendered(&app, width, height);
+                assert!(text.contains("Sky guide"));
+                assert!(text.contains("? / Esc"));
+                assert!(text.contains("Look up"));
+            }
+        }
+    }
+
+    #[test]
+    fn a_successful_empty_sample_is_quiet_not_still_waiting() {
+        let mut app = demo_app(0.0);
+        app.tracks.clear();
+        let text = rendered(&app, 100, 32);
+        assert!(text.contains("A quiet patch of sky"));
+        assert!(!text.contains("Looking for aircraft"));
+    }
+
+    #[test]
+    fn errors_and_stale_tles_precede_optional_predictions() {
+        let mut app = demo_app(0.0);
+        app.set_error("receiver offline");
+        app.satellites_stale = true;
+        app.pass_prediction = Some(crate::app::PassPrediction {
+            label: "TEST".into(),
+            elevation_deg: 70.0,
+            seconds: 90.0,
+        });
+        let status = status_line(&app).to_string();
+        assert!(status.find("receiver offline").unwrap() < status.find("will pass").unwrap());
+        assert!(status.find("out of date").unwrap() < status.find("will pass").unwrap());
+    }
+
+    #[test]
+    fn selected_trail_is_visually_distinct_without_moving_any_aircraft() {
+        let utc = crate::sun::parse_rfc3339_seconds("2024-12-21T00:00:00Z").unwrap() as f64;
+        let mut app = demo_app(utc);
+        app.show_interface = false;
+        app.show_callsigns = false;
+        let draw_buffer = |app: &App| {
+            let mut terminal = Terminal::new(TestBackend::new(100, 32)).unwrap();
+            terminal.draw(|frame| render(frame, app)).unwrap();
+            terminal.backend().buffer().clone()
+        };
+        let before = draw_buffer(&app);
+        let positions: Vec<_> = app.tracks.iter().map(Track::az_el).collect();
+        app.select_next();
+        let after = draw_buffer(&app);
+        assert_ne!(before, after);
+        assert_eq!(
+            positions,
+            app.tracks.iter().map(Track::az_el).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn gradients_only_change_background_not_sky_symbols() {
+        let area = Rect::new(2, 2, 20, 8);
+        let mut buffer = Buffer::filled(area, ratatui::buffer::Cell::new("✦"));
+        for palette in [DAY_PALETTE, TWILIGHT_PALETTE, NIGHT_PALETTE] {
+            shade_sky(&mut buffer, area, &palette, true);
+            assert_eq!(buffer[(2, 2)].symbol(), "✦");
+            assert_ne!(buffer[(2, 2)].bg, buffer[(2, 9)].bg);
+        }
+    }
+
+    #[test]
+    fn hidden_daytime_satellites_cannot_be_clicked() {
+        let utc = crate::sun::parse_rfc3339_seconds("2024-06-21T00:00:00Z").unwrap() as f64;
+        let mut app = demo_app(utc);
+        // Pin this hit-testing fixture above the horizon; the real TLEs may
+        // put every satellite below it at the chosen observer and time.
+        app.satellite_positions[0].elevation_deg = 45.0;
+        let satellite = app
+            .satellite_positions
+            .first()
+            .expect("demo satellite")
+            .clone();
+        app.tracks.clear();
+        app.sun_elevation_deg = 30.0;
+        let area = Rect::new(0, 0, 100, 32);
+        let [_, sky_area, _, _] = view_areas(area, true);
+        let (x, y) = geo::project(satellite.azimuth_deg, satellite.elevation_deg, true);
+        let (col, row) = SkyGeometry::new(sky_area.width, sky_area.height).direction_cell(x, y);
+        assert!(!select_at(
+            &mut app,
+            area,
+            sky_area.x + col,
+            sky_area.y + row
+        ));
+        app.sun_elevation_deg = -20.0;
+        assert!(select_at(
+            &mut app,
+            area,
+            sky_area.x + col,
+            sky_area.y + row
+        ));
+        assert!(app.selected_satellite.is_some());
     }
 
     #[test]

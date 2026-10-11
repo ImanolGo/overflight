@@ -34,6 +34,10 @@ pub struct App {
     pub view_azimuth_deg: f64,
     pub show_callsigns: bool,
     pub show_trails: bool,
+    /// Show the instrument strips and selection details.
+    pub show_interface: bool,
+    /// The modal sky guide; tracking continues while it is open.
+    pub show_help: bool,
     pub tracks: Vec<Track>,
     /// Seconds at the last successful update.
     pub last_update_s: Option<f64>,
@@ -99,6 +103,8 @@ impl App {
             view_azimuth_deg: 0.0,
             show_callsigns: true,
             show_trails: true,
+            show_interface: true,
+            show_help: false,
             tracks: Vec::new(),
             last_update_s: None,
             last_error: None,

@@ -6,19 +6,44 @@
 [![Release](https://img.shields.io/github/v/release/ImanolGo/overflight?v=2)](https://github.com/ImanolGo/overflight/releases)
 [![License: MIT](https://img.shields.io/crates/l/overflight.svg?v=2)](https://github.com/ImanolGo/overflight/blob/main/LICENSE)
 
-Look up from your terminal.
+**A little plane-spotting. A little stargazing. All in your terminal.**
 
 ![overflight: aircraft drifting across a starry night sky, with a detail box for the selected plane](https://raw.githubusercontent.com/ImanolGo/overflight/main/demo.gif)
 
-> **Status:** 0.5 — release candidate for 1.0. The command-line interface, the
+> **Status:** 0.6 — on the road to 1.0. The command-line interface, the
 > config file and the logbook format are meant to stay stable from here. The plan
 > lives in [PLAN.md](https://github.com/ImanolGo/overflight/blob/main/PLAN.md);
 > see [DEVELOPMENT.md](https://github.com/ImanolGo/overflight/blob/main/DEVELOPMENT.md)
 > for how it is built and released.
 
-overflight shows the aircraft flying above you right now, drawn as if you were lying on your back in a field and looking straight up. The edge of the circle is the horizon, the middle is directly overhead, and every plane drifts across it in real time with its callsign trailing behind. During the day the sky is blue, at dusk it fades, and at night you get stars.
+That plane you just heard? Give it a name. overflight turns nearby aircraft into
+a living sky chart, drawn as if you were lying in a field and looking straight
+up. Flights drift across a horizon circle with their callsigns and fading
+trails. Blue afternoons become warm twilight, then a real star field with the
+Moon, planets and passing satellites.
 
-It's a screensaver, mostly. But it's also the quickest way to answer "what was that plane that just went over?"
+Keep it in a spare pane, explore a flight when you're curious, or let it become
+a quiet window onto the sky. It's not an air-traffic-control display: positions
+between updates are estimated, coverage varies, and it's for curiosity—not
+navigation or safety decisions.
+
+## Take a look
+
+```sh
+overflight --demo                       # try the sky offline, no setup
+overflight --lat 52.52 --lon 13.40      # look above your own location
+```
+
+**Spot:** `Tab` or click an aircraft to see its identity, altitude and where to
+look. Its highlighted trail makes it easy to follow through busy airspace;
+`Backspace` clears the selection.
+
+**Explore:** `?` opens the sky guide. `h` switches to a side-on horizon;
+`←` / `→` turn your view. At night, `c` joins up the real constellations.
+
+**Unwind:** `v` hides the instruments and details; `l` hides callsigns.
+`--screensaver` starts with both hidden and exits on any key. Tracking keeps
+running in quiet view and while the guide is open.
 
 ## Reading the sky
 
@@ -101,6 +126,9 @@ Keys while it's running:
 | --- | --- |
 | `q` / `Esc` | Quit |
 | `Tab` | Select the next aircraft or satellite and show details |
+| `Backspace` | Clear the selection |
+| `?` | Open the sky guide; `?` / `Esc` closes it |
+| `v` | Show or hide instruments and details (quiet view) |
 | `l` | Show or hide callsigns |
 | `t` | Show or hide trails |
 | `m` | Switch between sky view and map orientation |
@@ -118,10 +146,16 @@ aircraft type, altitude, ground speed, distance from you, and where to look
 (origin → destination) from [adsbdb](https://www.adsbdb.com/); this is off in
 `--demo`.
 
-The status line along the bottom tells you the data source and how many
+The instrument header identifies day/twilight/night, sky or map orientation,
+the viewing radius and whether you're watching the offline demo. The readable,
+two-row status strip along the bottom tells you the data source and how many
 aircraft are in range, the next aircraft due overhead ("DLH4AB will pass 72° up
 in 1:40"), and — at twilight — the next visible ISS pass. It also warns when
 the satellite data is out of date.
+
+The skyline in horizon mode is decorative, not local terrain. Stars and
+celestial positions remain computed for your location and time; the new sky
+gradient is purely atmospheric styling.
 
 `--log file.csv` keeps a spotter's logbook: one row per aircraft when it leaves
 the sky, and for whatever is still up when you quit. `--bell` rings the terminal bell when an unusual aircraft appears.

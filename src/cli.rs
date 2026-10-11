@@ -36,6 +36,9 @@ Keys while running:
   h              side-on horizon view; Left/Right turn it
   c              show or hide constellation lines
   u              switch between metric and imperial
+  v              show or hide instruments and details (quiet view)
+  ?              open the sky guide; ? / Esc closes it
+  Backspace      clear the selection
   click          select the nearest aircraft or satellite (--no-mouse to disable)
 
 The status line shows how many aircraft are in range, the next aircraft due \

@@ -2,7 +2,7 @@
 source: src/render.rs
 expression: buffer_text(terminal.backend().buffer())
 ---
-looking north
+ overflight · night · horizon · looking north · 40 km radius · DEMO
 
 
 
@@ -20,17 +20,17 @@ looking north
 ‹ 9                                                                                              9 ›
 
 
-
                           ← CNK89-
 
 
 
                                                            • AAL9600-
-
-                     █              ← LOG39D-        █                             • EZY42MY-
-      •█BAW21B+      █    • SHT19D-    █             █                 █             █• EIN1XT
-       █     █       █        •█VIR105+█     █       █         █       █     █       █         █
-   █   █     █   █   █     █   █   █   █     █   █   █     █   █   █   █     █   █   █     █   █
-   █ █ █   █ █   █ █ █   █ █   █   █ █ █   █ █   █ █ █   █ █   █   █ █ █   █ █   █ █ █   █ █   █
-▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁█▁▁
+                                    ← LOG39D-                                      • EZY42MY-
+             ██           • SHT19D-     ██▪                                 ███       • EIN1XT
+      • BAW21B+          ██   • VIR105+ ███                  ██             ██▪         ███
+    ███      ██          ██     ████    ▪██         ███      ██     ████    ███         ▪██      ██
+    ██▪ ████ ██     ████ ▪█     ███▪ ██ █▪█      ██ ██▪      ██     ██▪█ ██ ▪██      ██ █▪█      ██
+▁██▁███▁████▁██▁███▁████▁██▁███▁████▁██▁███▁████▁██▁███▁████▁██▁███▁████▁██▁███▁████▁██▁███▁████▁██▁
 demo · 26 aircraft · updated 0.6s ago · BAW26V will pass 62° up in 2:10 · ISS pass south 02:54 UTC,
+31° up
+ Tab inspect  Backspace clear  h horizon  v quiet  ? guide  q quit

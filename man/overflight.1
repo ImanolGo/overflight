@@ -1,6 +1,6 @@
 .ie \n(.g .ds Aq \(aq
 .el .ds Aq '
-.TH overflight 1  "overflight 0.5.0" 
+.TH overflight 1  "overflight 0.6.0" 
 .SH NAME
 overflight \- See the aircraft flying above you as a live sky view.
 .SH SYNOPSIS
@@ -109,8 +109,11 @@ Keys while running:
   h              side\-on horizon view; Left/Right turn it
   c              show or hide constellation lines
   u              switch between metric and imperial
+  v              show or hide instruments and details (quiet view)
+  ?              open the sky guide; ? / Esc closes it
+  Backspace      clear the selection
   click          select the nearest aircraft or satellite (\-\-no\-mouse to disable)
 
 The status line shows how many aircraft are in range, the next aircraft due overhead, and the next visible ISS pass at twilight. Military aircraft, emergency squawks and rare types are highlighted, and \-\-bell can ring for them. When there is a network, the selected aircraft\*(Aqs route is looked up.
 .SH VERSION
-v0.5.0
+v0.6.0

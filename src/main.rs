@@ -328,6 +328,8 @@ fn run_live(settings: &Settings) -> Result<()> {
 
     let mut app = App::new(query, source);
     app.units = settings.units;
+    app.show_interface = !settings.screensaver;
+    app.show_callsigns = !settings.screensaver;
     app.min_elevation_deg = settings.min_elevation;
     app.rare_types = settings.rare_types.clone();
     // Never beep during the offline demo.
@@ -490,7 +492,9 @@ fn event_loop(
                 {
                     break;
                 }
-                Event::Mouse(mouse) if mouse.kind == MouseEventKind::Down(MouseButton::Left) => {
+                Event::Mouse(mouse)
+                    if !screensaver && mouse.kind == MouseEventKind::Down(MouseButton::Left) =>
+                {
                     if let Ok(area) = terminal.size() {
                         render::select_at(app, area.into(), mouse.column, mouse.row);
                     }
@@ -507,6 +511,14 @@ fn event_loop(
 
 /// Handle a key press, returning `true` if the app should quit.
 fn handle_key(app: &mut App, code: KeyCode) -> bool {
+    if app.show_help {
+        match code {
+            KeyCode::Char('?') | KeyCode::Esc => app.show_help = false,
+            KeyCode::Char('q') => return true,
+            _ => {}
+        }
+        return false;
+    }
     match code {
         KeyCode::Char('q') | KeyCode::Esc => true,
         KeyCode::Tab => {
@@ -543,6 +555,20 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         }
         KeyCode::Char('c') => {
             app.constellation_lines = !app.constellation_lines;
+            false
+        }
+        KeyCode::Char('?') => {
+            app.show_help = true;
+            false
+        }
+        KeyCode::Char('v') => {
+            app.show_interface = !app.show_interface;
+            false
+        }
+        KeyCode::Backspace => {
+            app.selected = None;
+            app.selected_satellite = None;
+            app.selected_route = None;
             false
         }
         _ => false,
@@ -704,5 +730,50 @@ mod tests {
         assert!(!handle_key(&mut app, KeyCode::Left));
         assert_eq!(app.view_azimuth_deg, 0.0);
         assert!(handle_key(&mut app, KeyCode::Esc));
+    }
+
+    #[test]
+    fn sky_guide_is_modal_and_escape_does_not_quit() {
+        let mut app = App::new(
+            Query {
+                lat: 0.0,
+                lon: 0.0,
+                radius_km: 80.0,
+                alt_m: 0.0,
+            },
+            "demo",
+        );
+        assert!(!handle_key(&mut app, KeyCode::Char('?')));
+        assert!(app.show_help);
+        handle_key(&mut app, KeyCode::Char('h'));
+        handle_key(&mut app, KeyCode::Char('l'));
+        handle_key(&mut app, KeyCode::Char('v'));
+        assert!(!app.horizon);
+        assert!(app.show_callsigns);
+        assert!(app.show_interface);
+        assert!(!handle_key(&mut app, KeyCode::Esc));
+        assert!(!app.show_help);
+        assert!(handle_key(&mut app, KeyCode::Esc));
+    }
+
+    #[test]
+    fn quiet_view_and_clearing_selection_are_independent_of_tracking() {
+        let mut app = App::new(
+            Query {
+                lat: 0.0,
+                lon: 0.0,
+                radius_km: 80.0,
+                alt_m: 0.0,
+            },
+            "demo",
+        );
+        app.selected = Some("abc123".into());
+        assert!(!handle_key(&mut app, KeyCode::Char('v')));
+        assert!(!app.show_interface);
+        assert_eq!(app.selected.as_deref(), Some("abc123"));
+        assert!(!handle_key(&mut app, KeyCode::Backspace));
+        assert!(app.selected.is_none());
+        assert!(!handle_key(&mut app, KeyCode::Char('v')));
+        assert!(app.show_interface);
     }
 }
